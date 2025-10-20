@@ -1,52 +1,60 @@
-# --- BLOQUE DE NORMALIZACIÓN Y ÚLTIMO ESTADO POR OPORTUNIDAD ---
-
-# 🔹 Asegura que no haya conflicto de zona horaria
-if "FECHAHORA" in df_final_validado.columns:
-    df_final_validado["FECHAHORA"] = pd.to_datetime(df_final_validado["FECHAHORA"], errors="coerce").dt.tz_localize(None)
-
-# 🔹 Normaliza tipos mínimos
+# ====== NORMALIZACIÓN Y ÚLTIMO ESTADO POR OPORTUNIDAD (sin mezclar tz) ======
 df = df_final_validado.copy()
+
+# 0) Normaliza strings clave
 for col in ["OPORTUNIDAD", "ANALISTA", "TIPOPRODUCTO", "RESULTADOANALISTA", "EQUIPO", "EXPERTISE", "FUENTE"]:
     if col in df.columns:
         df[col] = df[col].astype(str).str.strip()
 
-# 🔹 FECHAHORA a datetime; si falta, intenta FECHA + HORA
-df["FECHAHORA"] = pd.to_datetime(df.get("FECHAHORA"), errors="coerce")
+# 1) (CLAVE) Reconstruye SIEMPRE FECHAHORA desde FECHA + HORA -> todo naive (hora Lima)
+#    Evita mezclar tz-aware/naive que venía de distintas fuentes
 if "FECHA" in df.columns and "HORA" in df.columns:
-    mask_nat = df["FECHAHORA"].isna() & df["FECHA"].notna() & df["HORA"].notna()
-    if mask_nat.any():
-        df.loc[mask_nat, "FECHAHORA"] = pd.to_datetime(
-            df.loc[mask_nat, "FECHA"].astype(str).str.strip() + " " +
-            df.loc[mask_nat, "HORA"].astype(str).str.strip(),
-            errors="coerce"
-            # , dayfirst=True  # <- activa si tus fechas están en formato D/M/A
-        )
+    df["FECHAHORA"] = pd.to_datetime(
+        df["FECHA"].astype(str).str.strip() + " " + df["HORA"].astype(str).str.strip(),
+        errors="coerce"  # , dayfirst=True  # activa si tus FECHAs están en D/M/A
+    )
+else:
+    # Fallback extremo: si no tienes FECHA/HORA, limpia FECHAHORA y quita tz si la hubiera
+    df["FECHAHORA"] = pd.to_datetime(df.get("FECHAHORA"), errors="coerce")
+    df["FECHAHORA"] = df["FECHAHORA"].dt.tz_localize(None)
 
-# 🔹 Prioridad de fuentes para desempatar en mismo minuto
-prioridad = {"POWERAPP": 3, "CEF": 2, "TCSTOCK": 1}
+# 2) Asegura FUENTE (para prioridad). Si no existe, marca 'OTRO'
+if "FUENTE" not in df.columns:
+    df["FUENTE"] = "OTRO"
+prioridad = {"POWERAPP": 3, "CEF": 2, "TCSTOCK": 1, "OTRO": 0}
 df["PRIORIDAD"] = df["FUENTE"].map(prioridad).fillna(0)
 
-# 🔹 Si FLGPENDIENTE viene como "SI/NO", pásalo a 0/1 (así no se rompe el sort)
+# 3) Normaliza FLGPENDIENTE a 0/1 si viene como texto
 if "FLGPENDIENTE" in df.columns and df["FLGPENDIENTE"].dtype == object:
-    df["FLGPENDIENTE"] = df["FLGPENDIENTE"].str.upper().map({"SI": 1, "NO": 0}).fillna(0).astype(int)
+    df["FLGPENDIENTE"] = (
+        df["FLGPENDIENTE"].astype(str).str.upper().map({"SI": 1, "NO": 0})
+        .fillna(0).astype(int)
+    )
 
-# 🔹 QUÉDATE CON EL ÚLTIMO POR OPORTUNIDAD
+# (Opcional) FLGFACA a partir del resultado, si quieres tenerlo ya aquí
+if "RESULTADOANALISTA" in df.columns:
+    df["FLGFACA"] = df["RESULTADOANALISTA"].astype(str).str.upper().str.contains("FACA", na=False)\
+        .map({True: "SI", False: "NO"})
+
+# 4) Quédate con el ÚLTIMO por OPORTUNIDAD (ordena por fecha y prioridad)
 df = (
     df.dropna(subset=["FECHAHORA"])
       .sort_values(["OPORTUNIDAD", "FECHAHORA", "PRIORIDAD"], ascending=[True, True, False])
       .drop_duplicates(subset="OPORTUNIDAD", keep="last")
 )
 
-# 🔹 Deja FLGPENDIENTE en "SI/NO" para exportar (si la usas así)
+# 5) Devuelve FLGPENDIENTE a "SI/NO" si lo exportas como texto
 if "FLGPENDIENTE" in df.columns:
     df["FLGPENDIENTE"] = df["FLGPENDIENTE"].map({1: "SI", 0: "NO"})
 
-# 🔹 Reemplaza el consolidado final
+# 6) Reemplaza el consolidado
 df_final_validado = df
+# ====== FIN BLOQUE ======
 
-# --- FIN DEL BLOQUE ---
 
-# Y luego exportas como ya lo hacías:
-df_final_validado.to_csv(
-    "OUTPUT/REPORTE_FINAL_VALIDADO.csv", index=False, encoding="utf-8-sig"
-)
+
+
+
+
+print(df_final_validado["FECHAHORA"].head(5))
+print(df_final_validado["FECHAHORA"].astype(str).str.contains(r"[+-]\d{2}:\d{2}|Z").value_counts())
