@@ -1,70 +1,38 @@
-import pandas as pd
+# ============================================
+# 4.1) NUEVAS COLUMNAS: FLGQUINCENA, EQUIPOBEX, EQUIPOENALTA
+#     (usar UnidadOrganizativa del CENTRALIZADO como llave)
+# ============================================
 
-# ==== DATOS DE ENALTA ====
-enalta_data = [
-    ["GERENTE DE AGENCIA ENALTA", "EQUIPO"],
-    ["GRUPO ENALTA", "ENALTA REAL OCHO"],
-    ["GRUPO ENALTA", "ENALTA PARK OFFICE"],
-    ["GRUPO ENALTA", "ENALTA LOS ANGELES"],
-    ["GRUPO ENALTA", "ENALTA JUAN DE ARONA"],
-    ["GRUPO ENALTA", "ENALTA EL DERBY"],
-    ["GRUPO ENALTA", "ENALTA CHACARILLA"],
-    ["GRUPO ENALTA", "ENALTA BENAVIDES"],
-    ["GRUPO ENALTA", "ENALTA ARMENDARIZ"],
-    ["GRUPO ENALTA", "ENALTA ALDO"],
-    ["GRUPO ENALTA I", "ENALTA SWISS TOWER"],
-    ["GRUPO ENALTA I", "ENALTA JUAN DE ALIAGA"],
-    ["GRUPO ENALTA I", "ENALTA DEAN VALDIVIA"],
-    ["GRUPO ENALTA I", "ENALTA CAVENECIA"],
-    ["GRUPO ENALTA I", "ENALTA ANDRES REYES"],
-    ["GERENCIA DE BANCA ENALTA", "ENALTA AREQUIPA"],
-    ["TRAINEE ENALTA", "TRAINEE ENALTA"],
-    ["GERENCIA DE BANCA ENALTA", "ENALTA TRUJILLO"],
-    ["GERENCIA DE BANCA ENALTA", "GERENCIA DE BANCA ENALTA"]
+# 1) FLGQUINCENA: Dia <= 15 => 1, si no 0
+tp_centralizado['FLGQUINCENA'] = (
+    pd.to_numeric(tp_centralizado['Dia'], errors='coerce').le(15)
+).astype(int)
+
+# 2) EQUIPOBEX (join por Área)
+df_bex = pd.read_csv('INPUT/BEX.csv', encoding='utf-8-sig', usecols=['AREA', 'EQUIPO'])
+bex_map = df_bex.set_index('AREA')['EQUIPO']
+tp_centralizado['EQUIPOBEX'] = tp_centralizado['UnidadOrganizativa_CENTRALIZADO'].map(bex_map)
+
+# 3) EQUIPOENALTA (join por Área)
+df_enalta = pd.read_csv('INPUT/ENALTA.csv', encoding='utf-8-sig', usecols=['AREA', 'EQUIPO'])
+enalta_map = df_enalta.set_index('AREA')['EQUIPO']
+tp_centralizado['EQUIPOENALTA'] = tp_centralizado['UnidadOrganizativa_CENTRALIZADO'].map(enalta_map)
+
+# Nota: si en lugar de la del centralizado quieres usar la UO de orgánico, 
+# cambia 'UnidadOrganizativa_CENTRALIZADO' por 'UnidadOrganizativa_ORGANICO' en los .map() de arriba.
+
+
+
+
+
+
+
+cols_vista = [
+    'FLGMALDERIVADO','MOTIVO_MALDERIVADO',
+    'CODMES','LLAVEMATRICULA',
+    'AGENCIA','GERENTE_AGENCIA',
+    'UnidadOrganizativa_CENTRALIZADO','UnidadOrganizativa_ORGANICO','SERVICIO_TRIBU_COE',
+    'FLGQUINCENA','EQUIPOBEX','EQUIPOENALTA',
+    'TIEMPO_ASESOR','FLG_TIEMPO'
 ]
-
-df_enalta = pd.DataFrame(enalta_data, columns=["Área", "Equipo"])
-
-# ==== DATOS DE BEX ====
-bex_data = [
-    ["GERENTE DE AGENCIA BEX", "EQUIPO"],
-    ["SUB GERENCIA BEX DIGITAL IV", "EQUIPO BEX DIGITAL - 16"],
-    ["SUB GERENCIA BEX DIGITAL IV", "EQUIPO BEX DIGITAL - 17"],
-    ["SUB GERENCIA BEX DIGITAL IV", "EQUIPO BEX DIGITAL - 18"],
-    ["SUB GERENCIA BEX DIGITAL IV", "EQUIPO BEX DIGITAL - 19"],
-    ["SUB GERENCIA BEX DIGITAL IV", "EQUIPO BEX DIGITAL - 20"],
-    ["SUB GERENCIA BEX DIGITAL IV", "EQUIPO BEX DIGITAL - 21"],
-    ["SUB GERENCIA BEX DIGITAL IV", "EQUIPO BEX DIGITAL - 26"],
-    ["SUB GERENCIA BEX DIGITAL", "EQUIPO BEX DIGITAL - 1"],
-    ["SUB GERENCIA BEX DIGITAL", "EQUIPO BEX DIGITAL - 2"],
-    ["SUB GERENCIA BEX DIGITAL", "EQUIPO BEX DIGITAL - 22"],
-    ["SUB GERENCIA BEX DIGITAL", "EQUIPO BEX DIGITAL - 3"],
-    ["SUB GERENCIA BEX DIGITAL", "EQUIPO BEX DIGITAL - 4"],
-    ["SUB GERENCIA BEX DIGITAL", "EQUIPO BEX DIGITAL - 5"],
-    ["SUB GERENCIA BEX DIGITAL III", "EQUIPO BEX DIGITAL - 11"],
-    ["SUB GERENCIA BEX DIGITAL III", "EQUIPO BEX DIGITAL - 12"],
-    ["SUB GERENCIA BEX DIGITAL III", "EQUIPO BEX DIGITAL - 13"],
-    ["SUB GERENCIA BEX DIGITAL III", "EQUIPO BEX DIGITAL - 14"],
-    ["SUB GERENCIA BEX DIGITAL III", "EQUIPO BEX DIGITAL - 15"],
-    ["SUB GERENCIA BEX DIGITAL III", "EQUIPO BEX DIGITAL - 24"],
-    ["SUB GERENCIA BEX DIGITAL III", "EQUIPO BEX DIGITAL - 25"],
-    ["SUB GERENCIA BEX DIGITAL II", "EQUIPO BEX DIGITAL - 10"],
-    ["SUB GERENCIA BEX DIGITAL II", "EQUIPO BEX DIGITAL - 23"],
-    ["SUB GERENCIA BEX DIGITAL II", "EQUIPO BEX DIGITAL - 6"],
-    ["SUB GERENCIA BEX DIGITAL II", "EQUIPO BEX DIGITAL - 7"],
-    ["SUB GERENCIA BEX DIGITAL II", "EQUIPO BEX DIGITAL - 8"],
-    ["SUB GERENCIA BEX DIGITAL II", "EQUIPO BEX DIGITAL - 9"],
-    ["SUPERVISION SERVICIO BEX DIGITAL", "SUPERVISION SERVICIO BEX DIGITAL"],
-    ["SUPERVISION SERVICIO BEX DIGITAL", "SUPERVISION SERVICIO BEX DIGITAL II"],
-    ["SUPERVISION SERVICIO BEX DIGITAL", "SUPERVISION SERVICIO BEX DIGITAL III"],
-    ["SUPERVISION SERVICIO BEX DIGITAL", "SUPERVISION SERVICIO BEX DIGITAL IV"],
-    ["BEX DIGITAL TRAINEE", "BEX DIGITAL TRAINEE"]
-]
-
-df_bex = pd.DataFrame(bex_data, columns=["Área", "Equipo"])
-
-# ==== EXPORTAR A CSV ====
-df_enalta.to_csv("enalta.csv", index=False, encoding="utf-8-sig")
-df_bex.to_csv("bex.csv", index=False, encoding="utf-8-sig")
-
-print("Archivos CSV generados: enalta.csv y bex.csv")
+print(tp_centralizado[[c for c in cols_vista if c in tp_centralizado.columns]].head(10))
