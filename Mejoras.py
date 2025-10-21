@@ -1,5 +1,33 @@
-import pandas as pd
-
-print(pd.read_csv("INPUT/POWERAPP.csv", nrows=0).columns.tolist())
-print(pd.read_excel("INPUT/BASECENTRALIZADO.xlsx", sheet_name="CENTRALIZADO", nrows=0).columns.tolist())
-print(pd.read_excel("INPUT/ORGANICO/1n_Activos_202505.xlsx", nrows=0).columns.tolist())
+['Title', 'FechaAsignacion', 'Tipo de Producto', 'ResultadoAnalista', 'ResultadoCDA', 'Motivo Derivación - Centralizado', 'Analista', 'Motivo Resultado Analista', 'Largo', 'AñoMes', 'Created', 'Mail', 'Motivo_MD', 'Submotivo_MD']
+[
+    'NroSolicitud','TipoProducto','TipoOperación','Producto','Campaña','TipoEvaluación','Estado',
+    'FecSolicitud','FecAprobación','FecUltEstado','CodSucAge','NombreSucAge','CanalMic','MatVendedor',
+    'NombreVendedor','DNIVendedorExterno','MatFiscalizador','NombreFiscalizador','EstadoFiscalia',
+    'OBSERVACION','MatEvaluador','NombreEvaluador','DesTipoJustificacion','MatUsuEvalVerif',
+    'NombreUsuEvaluadorVerificador','IdcTitular','TipoIdcTitular','NombreCompletoTitular','FecNacTitular',
+    'EdadTitular','TipoRenta','IngresosTitular','OtrosIngresosTitular','SueldoPromedioTitular',
+    'IdcConyuge','TipoIdcConyuge','NombreCompletoConyuge','IngresosConyuge','OtrosIngresosConyuge',
+    'SueldoPromedioConyuge','FecNacConyuge','EdadConyuge','MontoSolicitado','MontoAprobado','Cuota',
+    'Plazo','Tasa','TipoMoneda','TipoCambio$','MontoAprobadoSOLES','TipoVariante','SegmentoTitular',
+    'RucEmpresa','Origen','AreaEvaluador','Equipo','NombreApellido','Rango_MontoAprobadoSOLES',
+    'Area_Vendedor','Servicio_Vendedor','Unidad Organizativa','Rango_MontoAprobadoSOLES2','Dia','Función',
+    'DetalleProducto','DetalleStock','ResSTOCK','RangoTiempo_IngSol-FinEva_24Hrs','RANGO HORAS X6',
+    'Monto desembolsado','flg_des','DESCRIP. CAMP','.Res','..Mot','…Cod','Montodesembolsado',
+    'a.fecdesembolso','¿Adjuntaron documentos?','MontoSolicitado_Soles','Canal','EstadoFinal','MES',
+    'N_Semana','AÑO','dFechaSolicitud','T_Inicio_Evaluacion','hora_analista_1','T_Fin_Evaluacion',
+    'Tiempo_Asesor','Tiempo_Analista','Tiempo_Cliente','Dia_FechaCreacion','Mes_FechaCreacion',
+    'Dia_Util_FechaCreacion','FechaCreacion_sin hora','Hora_número_FechaCreacion','Corte_FechaCreacion',
+    'Atendido en horario_FechaCreacion','Dia_Inicio_Evaluacion','Mes_Inicio_Evaluacion',
+    'Dia_Util_Inicio_Evaluacion','Inicio_Evaluacion_sin hora','Hora_número_Inicio_Evaluacion',
+    'Corte_Inicio_Evaluacion','Atendido en horario_Inicio_Evaluacion','Corte_Bandeja del Analista',
+    'Dia_Fin_Evaluacion','Mes_Fin_Evaluacion','Dia_Util_Fin_Evaluacion','Fin_Evaluacion_sin hora',
+    'Hora_número_Fin_Evaluacion','Corte_Fin_Evaluacion','Atendido en horario_Fin_Evaluacion',
+    'Atendido en horario_Fin_Evaluacion_SabyDom','Atendido en horario_Fin_Evaluacion2',
+    'RangoHrs_Tiempo_Analista','TIEMPO CLIENTE X12 HORAS- CLIENTE','TIEMPO CLIENTE X24 HORAS- CLIENTE',
+    'RangoHrs_Tiempo_Cliente','.','destipestadosolicitud','ResultadoAnalista','Etapa','Flag_Desembolso',
+    'Flag_Desestimada_automatico','Segmento','DesProducto','Rango_MontoSolicitadoSolesAntes',
+    'Rango_MontoAprobadoSolesAntes','Rango_MontoAprobadoSolesAntesOtroRango',
+    'RangoHrs_Tiempo_Cliente_Nuevo','Mal Derivada','Mal derivada (sub motivo)','Filtro Killer',
+    'mesfiltro','3ra ','Llave','Motivo Resultado Analista','Codclavecic'
+]
+['Matrícula', 'Nombre Completo', 'Código Area/Tribu/COE', 'Area/Tribu/COE', 'Código Servicio/Tribu/COE', 'Servicio/Tribu/COE', 'Código Unidad Organizativa', 'Unidad Organizativa', 'Código Agencia', 'Agencia', 'Subdivisión de personal', 'Área de personal', 'Tipo Contrato', 'Código Función', 'Función', 'Fecha Inicio Medida', 'Matrícula Superior', 'Nombre Completo Superior', 'Fecha Ingreso', 'Fecha Nacimiento', 'Correo electronico', 'Apellido Paterno', 'Apellido Materno', 'Nombres', 'Nombre Corto', 'Nombre Corto Superior', 'LlaveCodMat', 'LlaveCodMail', 'CODMES']
