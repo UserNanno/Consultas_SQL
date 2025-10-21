@@ -91,7 +91,13 @@ print(df_organico_u6m['CODMES'].value_counts())
 
 
 
-mi df to_centralizado es el principal a eso quiero unirle los otros dos con algunas condiciones:
-Primero, como puedes ver tengo tp_bad_derivadas["FLGMALDERIVADO"] = 1. Ahora en tp_centralizado también debe haber una columna de FLGMALDERIVADO que sea 0 si no coincide con tp_bad_derivadas["OPORTUNIDAD"] Ya que de mis casos, aca los marco como mal derivados.
-    También quiero obtener el MOTIVO de tp_bad_derivadas (Si es mal derivado). 
-Luego en una columan calculada LLAVEMATRICULA que sea el CODMES
+mi df tp_centralizado es el principal a eso quiero unirle los otros dos con algunas condiciones:
+Primero, como puedes ver tengo tp_bad_derivadas["FLGMALDERIVADO"] = 1. Ahora en tp_centralizado también debe haber una columna de FLGMALDERIVADO que sea 0 si no coincide con tp_bad_derivadas["OPORTUNIDAD"], el cruce sería por NroSolicitud. Ya que de mis casos, aca los marco como mal derivados.
+También quiero obtener el MOTIVO de tp_bad_derivadas (Si es mal derivado - FLGMALDERIVADO = 1). 
+Luego en una columan calculada LLAVEMATRICULA que sea la columna CODMES (que creamos) concatenado con la columna MatVendedor
+Luego en una columna calculada AGENCIA que busque la columna LLAVEMATRICULA en el df_organico_u6m["LlaveCodMat"] y obtener el campo df_organico_u6m["AGENCIA"] en nuestra base
+Asimismo traer el campo df_organico_u6m["Nombre Corto Superior"] en la nueva columna GERENTE_AGENCIA
+Luego en otra columna llamada TIEMPO_ASESOR será la resta entre T_Inicio_Evaluacion - dFechaSolicitud de la base de tp_centralizado que ya tenemos
+Luego en otra columna llamada FLG_TIEMPO colocaremos 1 si se cumple y 0 si no se cumple la validación: Si T_Inicio_Evaluacion es nulo, entonces se marca que si y caso contrario se marca 0
+Luego otra columna llamada UNIDAD_ORGANICA donde otra vez buscaremos en df_organico_u6m el campo "Unidad Organizativa" y la traeremos. También el campo "Servicio/Tribu/COE". Aca recuerda que las llaves son df_organico_u6m["LlaveCodMat"] y  LLAVEMATRICULA (columna que creamos en tp_centralizado
+    
