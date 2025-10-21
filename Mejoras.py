@@ -1,47 +1,34 @@
-# 4) ORGÁNICO: LECTURA MULTIMES Y MERGE POR LLAVE
-#    (traer: Agencia → AGENCIA, Nombre Corto Superior → GERENTE_AGENCIA,
-#            Unidad Organizativa → UNIDAD_ORGANICA, Servicio/Tribu/COE → SERVICIO_TRIBU_COE) → (conservar ambas UO)
-lista_org = []
-for mes in RANGO_MESES_ORGANICO:
-    ruta = os.path.join(RUTA_ORGANICO_DIR, f"1n_Activos_{mes}.xlsx")
-    try:
-        lista_org.append(pd.read_excel(ruta))
-    except Exception as e:
-        print(f"[AVISO] No se pudo leer {ruta}: {e}")
+# ============================================
+# 4.1) NUEVAS COLUMNAS: FLGQUINCENA, EQUIPOBEX, EQUIPOENALTA
+#     (usando la UO del CENTRALIZADO para los cruces con CSV)
+# ============================================
 
-if len(lista_org) == 0:
-    df_organico = pd.DataFrame(columns=[
-        'LlaveCodMat','Agencia','Nombre Corto Superior','Unidad Organizativa','Servicio/Tribu/COE','CODMES'
-    ])
-else:
-    df_organico = pd.concat(lista_org, ignore_index=True)
+# 1) FLGQUINCENA: Dia <= 15 => 1, si no 0
+tp_centralizado['FLGQUINCENA'] = (
+    pd.to_numeric(tp_centralizado['Dia'], errors='coerce').le(15)
+).astype(int)
 
-# Asegurar existencia de columna llave
-if 'LlaveCodMat' not in df_organico.columns:
-    df_organico['LlaveCodMat'] = ''
+# 2) EQUIPOBEX: map por Área desde BEX.csv
+df_bex = pd.read_csv('INPUT/BEX.csv', encoding='utf-8-sig', usecols=['AREA', 'EQUIPO'])
+bex_map = df_bex.set_index('AREA')['EQUIPO']
+tp_centralizado['EQUIPOBEX'] = tp_centralizado['UnidadOrganizativa_CENTRALIZADO'].map(bex_map)
 
-cols_org = ['LlaveCodMat', 'Agencia', 'Nombre Corto Superior', 'Unidad Organizativa', 'Servicio/Tribu/COE']
-faltan = [c for c in cols_org if c not in df_organico.columns]
-if faltan:
-    print("[AVISO] Faltan columnas en orgánico:", faltan)
+# 3) EQUIPOENALTA: map por Área desde ENALTA.csv
+df_enalta = pd.read_csv('INPUT/ENALTA.csv', encoding='utf-8-sig', usecols=['AREA', 'EQUIPO'])
+enalta_map = df_enalta.set_index('AREA')['EQUIPO']
+tp_centralizado['EQUIPOENALTA'] = tp_centralizado['UnidadOrganizativa_CENTRALIZADO'].map(enalta_map)
 
-# Suffixes para distinguir columnas con el mismo nombre
-tp_centralizado = tp_centralizado.merge(
-    df_organico[[c for c in cols_org if c in df_organico.columns]],
-    left_on='LLAVEMATRICULA',
-    right_on='LlaveCodMat',
-    how='left',
-    suffixes=('', '_ORG')  # lo de la derecha que choque tendrá sufijo _ORG
-)
+# Si prefieres usar la UO del orgánico para estos cruces, cambia
+# 'UnidadOrganizativa_CENTRALIZADO' -> 'UnidadOrganizativa_ORGANICO' en los .map() de arriba.
 
-# Renombrar campos finales
-tp_centralizado.rename(columns={
-    'Agencia': 'AGENCIA',
-    'Nombre Corto Superior': 'GERENTE_AGENCIA',
-    'Servicio/Tribu/COE': 'SERVICIO_TRIBU_COE',
-    'Unidad Organizativa': 'UnidadOrganizativa_CENTRALIZADO',  # viene del centralizado (lado izquierdo)
-    'Unidad Organizativa_ORG': 'UnidadOrganizativa_ORGANICO'   # viene del orgánico (lado derecho)
-}, inplace=True)
 
-# Limpieza de llave del orgánico (si no la usas luego)
-tp_centralizado.drop(columns=['LlaveCodMat'], inplace=True, errors='ignore')
+
+cols_vista = [
+    'FLGMALDERIVADO','MOTIVO_MALDERIVADO',
+    'CODMES','LLAVEMATRICULA',
+    'AGENCIA','GERENTE_AGENCIA',
+    'UnidadOrganizativa_CENTRALIZADO','UnidadOrganizativa_ORGANICO','SERVICIO_TRIBU_COE',
+    'FLGQUINCENA','EQUIPOBEX','EQUIPOENALTA',
+    'TIEMPO_ASESOR','FLG_TIEMPO'
+]
+print(tp_centralizado[[c for c in cols_vista if c in tp_centralizado.columns]].head(10))
