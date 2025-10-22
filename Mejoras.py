@@ -1,8 +1,4 @@
-# ============================================
-# 1) POWERAPP (MULTI-CSV): LECTURA Y BAD DERIVADAS
-#    Lee todos los INPUT/POWERAPP/1n_Apps_*.csv y los une
-#    (sin tocar la clave OPORTUNIDAD)
-# ============================================
+# 1) POWERAPP: LECTURA Y BAD DERIVADAS
 import glob
 
 # Columnas esperadas en los PowerApps
@@ -52,19 +48,30 @@ else:
         ).rename(columns=RENAME_POWERAPP)
     )
 
-# --- Limpieza / normalización ---
+# Normalizaciones SOLO en campos no-clave
 df_powerapp['MOTIVO'] = df_powerapp['MOTIVO'].astype(str).str.strip().str.upper()
 df_powerapp['SUBMOTIVO'] = df_powerapp['SUBMOTIVO'].astype(str).str.strip().str.upper()
 
+# Fecha auxiliar (no se usa como llave)
 created = pd.to_datetime(df_powerapp['CREATED'], utc=True, errors='coerce').dt.tz_convert(TZ_PERU)
 df_powerapp['FECHA'] = created.dt.date
+df_powerapp["CODMES"] = pd.to_datetime(df_powerapp["FECHA"]).dt.strftime("%Y%m")
 
-# --- BAD DERIVADAS ---
+# Filtrado "mal derivadas" (no vehículos/estudios, denegado analista y motivo no NaN)
 tp_bad_derivadas = df_powerapp[
     (~df_powerapp['TIPOPRODUCTO'].isin(EXCLUIR_TIPO_PRODUCTO)) &
     (df_powerapp['ResultadoAnalista'] == 'Denegado por Analista de credito') &
     (df_powerapp['MOTIVO'] != 'NAN')
-][['OPORTUNIDAD', 'MOTIVO', 'SUBMOTIVO']].copy()
+][['OPORTUNIDAD', "CODMES", "FECHA", 'MOTIVO', 'SUBMOTIVO']].copy()
 
 tp_bad_derivadas['FLGMALDERIVADO'] = 1
 tp_bad_derivadas = tp_bad_derivadas.drop_duplicates(subset=['OPORTUNIDAD'])
+
+
+
+Se encontraron 10 archivos PowerApp: ['INPUT/POWERAPP\\1n_Apps_202501.csv', 'INPUT/POWERAPP\\1n_Apps_202502.csv', 'INPUT/POWERAPP\\1n_Apps_202503.csv', 'INPUT/POWERAPP\\1n_Apps_202504.csv', 'INPUT/POWERAPP\\1n_Apps_202505.csv', 'INPUT/POWERAPP\\1n_Apps_202506.csv', 'INPUT/POWERAPP\\1n_Apps_202507.csv', 'INPUT/POWERAPP\\1n_Apps_202508.csv', 'INPUT/POWERAPP\\1n_Apps_202509.csv', 'INPUT/POWERAPP\\1n_Apps_202510.csv']
+
+
+tp_bad_derivadas["CODMES"].unique()
+array(['202501', '202502', '202503', '202504', '202505', '202507',
+       '202508', '202509', '202510'], dtype=object)
