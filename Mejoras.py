@@ -1,1 +1,2 @@
-df_derivadas.loc[:, "codmes"] = df_derivadas["FechaAsignacion"].dt.strftime("%Y%m")
+df_unido["FECHA_ASIGNACION"] = pd.to_datetime(df_unido["FECHA_ASIGNACION"], errors="coerce")
+df_unido["codmes"] = df_unido["FECHA_ASIGNACION"].dt.strftime("%Y%m")
