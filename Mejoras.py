@@ -1,1 +1,1 @@
-df_derivadas.loc[:, "FechaAsignacion"] = pd.to_datetime(df_derivadas["FechaAsignacion"], errors="coerce")
+df_derivadas["codmes"] = df_derivadas["FechaAsignacion"].dt.year * 100 + df_derivadas["FechaAsignacion"].dt.month
