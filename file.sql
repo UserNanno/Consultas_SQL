@@ -35,3 +35,9 @@ df_pendientes_cef_base["FECINICIOEVALUACION"] = parse_fecha_hora_esp(df_pendient
 df_pendientes_tcstock_base["FECHA"] = df_pendientes_tcstock_base["FECINICIOPASO"].dt.date
 df_pendientes_tcstock_base["HORA"] = df_pendientes_tcstock_base["FECINICIOPASO"].dt.time
 df_pendientes_tcstock_base["FECHAHORA"] = df_pendientes_tcstock_base["FECINICIOPASO"]
+
+
+df_pendientes_tcstock_base["FECHAHORA"] = (
+    df_pendientes_tcstock_base["FECHAHORA"].dt.tz_localize("America/Lima", nonexistent="NaT", ambiguous="NaT")
+)
+
