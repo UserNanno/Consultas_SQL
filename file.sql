@@ -1,84 +1,44 @@
-import pandas as pd
-import numpy as np
+# 1) Base filtrada
+df_pendientes_tcstock_base = df_pendientes_tcstock.loc[
+    df_pendientes_tcstock["ESTADO"] == "Pendiente",
+    ["OPORTUNIDAD", "DESTIPACCION", "ESTADO", "ANALISTA_MATCH", "FECINICIOPASO"]
+].copy()
 
-df_cef = pd.read_csv(
-    "INPUT/REPORT_CEF.csv",
-    encoding="latin1",
-    usecols=[
-        "Nombre de la oportunidad",
-        "Nombre del Producto: Nombre del producto",
-        "Etapa",
-        "Fecha de inicio de evaluación",
-        "Analista: Nombre completo",
-        "Analista de crédito: Nombre completo",
-    ],
+# 2) Partes de fecha/hora
+df_pendientes_tcstock_base["FECHA"] = df_pendientes_tcstock_base["FECINICIOPASO"].astype(str).str[:10]
+df_pendientes_tcstock_base["HORA"] = df_pendientes_tcstock_base["FECINICIOPASO"].astype(str).str[11:]
+df_pendientes_tcstock_base["FECHAHORA"] = df_pendientes_tcstock_base["FECINICIOPASO"].astype(str).str[:16]
+
+# 3) Enriquecimientos: trae EQUIPO y EXPERTISE sin duplicar columnas clave
+df_pendientes_tcstock_base = (
+    df_pendientes_tcstock_base
+      .merge(df_equipos[["ANALISTA", "EQUIPO"]],
+             left_on="ANALISTA_MATCH", right_on="ANALISTA", how="left")
+      .drop(columns=["ANALISTA"])  # evita duplicar ANALISTA (luego renombramos ANALISTA_MATCH)
+      .merge(df_clasificacion[["NOMBRE", "EXPERTISE"]],
+             left_on="ANALISTA_MATCH", right_on="NOMBRE", how="left")
+      .drop(columns=["NOMBRE"])    # limpieza
 )
 
+# 4) Seleccionar columnas y luego renombrar (más claro y seguro)
+df_pendientes_tcstock_final = df_pendientes_tcstock_base[
+    ["OPORTUNIDAD", "DESTIPACCION", "ESTADO",
+     "ANALISTA_MATCH", "FECHA", "HORA", "EXPERTISE", "FECHAHORA", "EQUIPO"]
+].copy()
 
-override = df_cef["Analista de crédito: Nombre completo"].isin([
-    "JOHN MARTIN RAMIREZ GALINDO",
-    "KIARA ALESSANDRA GARIBAY QUISPE",
-])
-df_cef["ANALISTA_FINAL"] = np.where(
-    override,
-    df_cef["Analista: Nombre completo"],
-    df_cef["Analista de crédito: Nombre completo"],
-)
+df_pendientes_tcstock_final.rename(columns={
+    "DESTIPACCION": "TIPOPRODUCTO",
+    "ESTADO": "RESULTADOANALISTA",
+    "ANALISTA_MATCH": "ANALISTA"
+}, inplace=True)
 
-df_cef = df_cef.rename(columns={
-    "Nombre de la oportunidad": "OPORTUNIDAD",
-    "Nombre del Producto: Nombre del producto": "DESPRODUCTO",
-    "Etapa": "ETAPA",
-    "Fecha de inicio de evaluación": "FECINICIOEVALUACION",
-})[["OPORTUNIDAD", "DESPRODUCTO", "ETAPA", "FECINICIOEVALUACION", "ANALISTA_FINAL"]]
+# 5) Filtro de producto
+df_pendientes_tcstock_final = df_pendientes_tcstock_final[
+    df_pendientes_tcstock_final["TIPOPRODUCTO"].isin(
+        ["TC", "UPGRADE", "AMPLIACION", "ADICIONAL", "BT", "VENTA COMBO TC"]
+    )
+].copy()
 
-
-df_cef = df_cef.merge(
-    df_cef_tc[["OPORTUNIDAD", "ESTADOAPROBACION"]],
-    on="OPORTUNIDAD",
-    how="left",
-)
-
-df_cef["ANALISTA"] = df_cef["ANALISTA_FINAL"].apply(find_analysts_in_cell)
-
-prod_set = {
-    "CREDITOS PERSONALES EFECTIVO MP",
-    "CRéDITOS PERSONALES MICROCREDITOS",
-    "CONVENIO DESCUENTOS POR PLANILLA",
-}
-aprob_set = {
-    "Aprobado por Analista de créditos",
-    "Aprobado por Gerente - Firmas y Desembolso",
-}
-rech_set = {
-    "Rechazado por Gerente - Documentación Adicional",
-    "Rechazado por Gerente - Firmas y Desembolso",
-}
-enviado_set = {
-    "Enviado a Gerente - Documentación Adicional",
-    "Enviado a Analista de créditos",
-    "Enviado a Gerente - Firmas y Desembolso",
-}
-
-aceptado = (
-    (df_cef["DESPRODUCTO"].isin(prod_set) & df_cef["ESTADOAPROBACION"].isin(aprob_set))
-    | (df_cef["ESTADOAPROBACION"] == "Aprobado por Analista de créditos")
-    | (df_cef["ETAPA"] == "Desembolsado/Activado")
-)
-denegado = (
-    (df_cef["DESPRODUCTO"].isin(prod_set) & df_cef["ESTADOAPROBACION"].isin(rech_set))
-    | (df_cef["ESTADOAPROBACION"].isin(enviado_set) & (df_cef["ETAPA"] == "Desestimada"))
-    | (df_cef["ETAPA"].isin(["Desestimada", "Denegada"]))
-)
-pendiente = df_cef["ETAPA"] == "Evaluación Centralizada"
-
-df_cef["ESTADO"] = np.select([aceptado, denegado, pendiente], ["Aceptado", "Denegado", "Pendiente"], default="")
-df_cef["FECINICIOEVALUACION"] = parse_fecha_hora_esp(df_cef["FECINICIOEVALUACION"])
-
-df_pendientes_cef = df_cef[[
-    "OPORTUNIDAD", "DESPRODUCTO", "ESTADOAPROBACION",
-    "ETAPA", "ANALISTA_FINAL", "ANALISTA",
-    "FECINICIOEVALUACION", "ESTADO"
-]]
-
-df_pendientes_cef = df_pendientes_cef.drop_duplicates()
+# 6) Flag y limpieza final
+df_pendientes_tcstock_final["FLGPENDIENTE"] = 1
+df_pendientes_tcstock_final = df_pendientes_tcstock_final.drop_duplicates()
