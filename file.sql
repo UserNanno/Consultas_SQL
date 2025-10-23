@@ -1,33 +1,41 @@
 import pandas as pd
-import re
 
-def parse_fecha_hora_esp(series):
-    """
-    Convierte strings como '01/10/2025 08:42 a. m.' o '01/10/2025 3:25 p. m.'
-    en datetime de 24 horas, respetando el día/mes correcto (formato español).
-    """
-    def clean_and_parse(value):
-        if pd.isna(value):
-            return pd.NaT
-        s = str(value).strip().lower()
-        s = re.sub(r'\s+', ' ', s)
-        # Limpieza de puntos y espacios en a. m. / p. m.
-        s = (s.replace('a. m.', 'AM')
-               .replace('p. m.', 'PM')
-               .replace('a. m', 'AM')
-               .replace('p. m', 'PM')
-               .replace('a m', 'AM')
-               .replace('p m', 'PM')
-               .strip())
-        try:
-            # 🔹 formato explícito día/mes/año con 12h
-            return pd.to_datetime(s, format="%d/%m/%Y %I:%M %p", errors="coerce", dayfirst=True)
-        except Exception:
-            return pd.to_datetime(s, errors="coerce", dayfirst=True)
-    return series.apply(clean_and_parse)
+pd.set_option("display.max_columns", None)
+pd.set_option('display.max_rows', None)
+pd.set_option("display.width", None)
 
+df = pd.read_csv(
+    "INPUT/POWERAPP.csv",
+    encoding="utf-8-sig",
+    usecols=["Title", "Tipo de Producto", "ResultadoAnalista", "Analista", "Created"]
+).rename(columns={
+    "Title": "OPORTUNIDAD",
+    "Tipo de Producto": "TIPOPRODUCTO",
+    "ResultadoAnalista": "RESULTADOANALISTA",
+    "Analista": "ANALISTA",
+    "Created": "CREATED",
+})
+df["ANALISTA"] = df["ANALISTA"].astype(str).str.strip().str.upper()
 
-df_pendientes_tcstock["FECINICIOPASO"] = parse_fecha_hora_esp(df_pendientes_tcstock["FECINICIOPASO"])
+df_clasificacion = pd.read_csv(
+    "INPUT/CLASIFICACION_ANALISTAS.csv",
+    encoding="utf-8-sig",
+    usecols=["NOMBRE", "EXPERTISE"]
+)
 
+df_equipos = pd.read_csv(
+    "INPUT/EQUIPOS.csv",
+    delimiter=";",
+    encoding="utf-8-sig",
+    usecols=["Analista nombre completo", "ANALISTA", "equipo"]
+).rename(columns={"Analista nombre completo" : "NOMBRECOMPLETO", "equipo": "EQUIPO"})
+df_equipos["ANALISTA"] = df_equipos["ANALISTA"].astype(str).str.strip().str.upper()
+df_equipos["EQUIPO"] = df_equipos["EQUIPO"].astype(str).str.strip().str.upper()
 
-df_pendientes_tcstock["FECINICIOPASO"] = df_pendientes_tcstock["FECINICIOPASO"].dt.tz_localize("America/Lima", nonexistent="NaT", ambiguous="NaT")
+df_tp = df.merge(df_clasificacion, left_on="ANALISTA", right_on="NOMBRE", how="left") \
+          .merge(df_equipos, on="ANALISTA", how="left")
+
+created = pd.to_datetime(df_tp["CREATED"], utc=True, errors="coerce").dt.tz_convert("America/Lima")
+df_tp["FECHA"] = created.dt.date
+df_tp["HORA"] = created.dt.time
+df_tp["FECHAHORA"] = created.dt.floor("min")
