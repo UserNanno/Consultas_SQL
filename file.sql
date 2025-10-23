@@ -1,36 +1,28 @@
-df_pendientes_cef_base = df_pendientes_cef.loc[
-    df_pendientes_cef["ESTADO"] == "Pendiente",
-    ["OPORTUNIDAD", "DESPRODUCTO", "ESTADOAPROBACION", "ANALISTA", "FECINICIOEVALUACION"]
-].copy()
+df_diario["ANALISTA"] = df_diario["ANALISTA"].astype(str).str.upper().str.strip()
 
-df_pendientes_cef_base["FECHA"] = df_pendientes_cef_base["FECINICIOEVALUACION"].dt.date
-df_pendientes_cef_base["HORA"] = df_pendientes_cef_base["FECINICIOEVALUACION"].dt.time
-df_pendientes_cef_base["DESPRODUCTO"] = df_pendientes_cef_base["DESPRODUCTO"].astype(str).str.upper()
+df_pendientes_tcstock_final["FECHA"] = pd.to_datetime(
+    df_pendientes_tcstock_final["FECHA"], dayfirst=True, errors="coerce"
+).dt.date
 
-prod_cef = {
-    "CRÉDITOS PERSONALES MICROCREDITOS",
-    "CREDITOS PERSONALES MICROCREDITOS",
-    "CRÉDITOS PERSONALES EFECTIVO MP",
-    "CREDITOS PERSONALES EFECTIVO MP",
-    "CONVENIO DESCUENTOS POR PLANILLA"
-}
-df_pendientes_cef_base = df_pendientes_cef_base[df_pendientes_cef_base["DESPRODUCTO"].isin(prod_cef)]
+df_pendientes_cef_final["FECHA"] = pd.to_datetime(
+    df_pendientes_cef_final["FECHA"], dayfirst=True, errors="coerce"
+).dt.date
 
-df_pendientes_cef_base = df_pendientes_cef_base.merge(
-    df_equipos[["ANALISTA", "EQUIPO"]],
-    on="ANALISTA", how="left"
-).merge(
-    df_clasificacion[["NOMBRE", "EXPERTISE"]],
-    left_on="ANALISTA", right_on="NOMBRE", how="left"
+df_pendientes_tcstock_sin_validar = df_pendientes_tcstock_final.copy()
+df_pendientes_cef_sin_validar = df_pendientes_cef_final.copy()
+
+trabajo_dias = (
+    df_diario[["ANALISTA", "FECHA"]]
+    .drop_duplicates()
+    .assign(TRABAJO=1)
 )
 
-df_pendientes_cef_final = df_pendientes_cef_base.rename(columns={
-    "DESPRODUCTO": "TIPOPRODUCTO",
-    "ESTADOAPROBACION": "RESULTADOANALISTA"
-})[[
-    "OPORTUNIDAD", "TIPOPRODUCTO", "RESULTADOANALISTA", "FECINICIOEVALUACION", "FECHA", "HORA", "ANALISTA", "EXPERTISE", "EQUIPO"
-]].copy()
+df_pendientes_tcstock_final = df_pendientes_tcstock_final.merge(trabajo_dias, on=["ANALISTA", "FECHA"], how="left")
+df_pendientes_tcstock_final["TRABAJO"] = df_pendientes_tcstock_final["TRABAJO"].fillna(0)
+df_pendientes_tcstock_final["FLGPENDIENTE"] = np.where(df_pendientes_tcstock_final["TRABAJO"] == 1, 1, 0)
+df_pendientes_tcstock_final.drop(columns=["TRABAJO"], inplace=True)
 
-df_pendientes_cef_final["FLGPENDIENTE"] = 1
-
-df_pendientes_cef_final = df_pendientes_cef_final.drop_duplicates()
+df_pendientes_cef_final = df_pendientes_cef_final.merge(trabajo_dias, on=["ANALISTA", "FECHA"], how="left")
+df_pendientes_cef_final["TRABAJO"] = df_pendientes_cef_final["TRABAJO"].fillna(0)
+df_pendientes_cef_final["FLGPENDIENTE"] = np.where(df_pendientes_cef_final["TRABAJO"] == 1, 1, 0)
+df_pendientes_cef_final.drop(columns=["TRABAJO"], inplace=True)
