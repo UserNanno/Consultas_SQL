@@ -14,8 +14,9 @@ df_cef = pd.read_csv(
     ],
 )
 
+
 override = df_cef["Analista de crédito: Nombre completo"].isin([
-    "JOHN MARTIN MARTIN RAMIREZ GALINDO",
+    "JOHN MARTIN RAMIREZ GALINDO",
     "KIARA ALESSANDRA GARIBAY QUISPE",
 ])
 df_cef["ANALISTA_FINAL"] = np.where(
@@ -31,6 +32,7 @@ df_cef = df_cef.rename(columns={
     "Fecha de inicio de evaluación": "FECINICIOEVALUACION",
 })[["OPORTUNIDAD", "DESPRODUCTO", "ETAPA", "FECINICIOEVALUACION", "ANALISTA_FINAL"]]
 
+
 df_cef = df_cef.merge(
     df_cef_tc[["OPORTUNIDAD", "ESTADOAPROBACION"]],
     on="OPORTUNIDAD",
@@ -41,21 +43,21 @@ df_cef["ANALISTA"] = df_cef["ANALISTA_FINAL"].apply(find_analysts_in_cell)
 
 prod_set = {
     "CREDITOS PERSONALES EFECTIVO MP",
-    "CRÉDITOS PERSONALES MICROCREDITOS",
+    "CRéDITOS PERSONALES MICROCREDITOS",
     "CONVENIO DESCUENTOS POR PLANILLA",
 }
 aprob_set = {
     "Aprobado por Analista de créditos",
-    "Aprobado por Gerente-Firmas y Desembolso",
+    "Aprobado por Gerente - Firmas y Desembolso",
 }
 rech_set = {
-    "Rechazado por Gerente-Documentación Adicional",
-    "Rechazado por Gerente-Firmas y Desembolso",
+    "Rechazado por Gerente - Documentación Adicional",
+    "Rechazado por Gerente - Firmas y Desembolso",
 }
 enviado_set = {
-    "Enviado a Gerente-Documentación Adicional",
+    "Enviado a Gerente - Documentación Adicional",
     "Enviado a Analista de créditos",
-    "Enviado a Gerente-Firmas y Desembolso",
+    "Enviado a Gerente - Firmas y Desembolso",
 }
 
 aceptado = (
