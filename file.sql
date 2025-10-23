@@ -71,6 +71,7 @@ denegado = (
 pendiente = df_cef["ETAPA"] == "Evaluación Centralizada"
 
 df_cef["ESTADO"] = np.select([aceptado, denegado, pendiente], ["Aceptado", "Denegado", "Pendiente"], default="")
+df_cef["FECINICIOEVALUACION"] = parse_fecha_hora_esp(df_cef["FECINICIOEVALUACION"])
 
 df_pendientes_cef = df_cef[[
     "OPORTUNIDAD", "DESPRODUCTO", "ESTADOAPROBACION",
