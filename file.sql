@@ -1,69 +1,17 @@
--- Dataset listo para tabla dinámica en Excel
--- Granularidad: CODMES x PERIODO x FLG_ADS_U3M
-WITH BASE AS (
-  SELECT
-      A.CODINTERNOCOMPUTACIONAL,
-      B.CODCLAVEPARTYCLI,
-      A.OPORTUNIDAD,
-      A.FECCREACION,
-      A.ESTADO,
-      CAST(date_format(A.FECCREACION, 'yyyyMM') AS INT) AS CODMES,
-      date_format(A.FECCREACION, 'yyyy-MM')            AS MES,     -- etiqueta amigable
-      CASE WHEN A.FECCREACION < DATE '2025-01-21' THEN 'ANTES' ELSE 'DESPUES' END AS PERIODO
-  FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_BASE_CENTRALIZADO A
-  LEFT JOIN CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.M_CLIENTE B
-    ON UPPER(TRIM(A.CODINTERNOCOMPUTACIONAL)) = UPPER(TRIM(B.CODINTERNOCOMPUTACIONAL))
-  WHERE
-      A.CODINTERNOCOMPUTACIONAL IS NOT NULL
-      AND A.TIPPRODUCTO = 'CC'
-      AND B.CODCLAVEPARTYCLI IS NOT NULL
-),
-TRANSACCIONES_ADS AS (
-  SELECT
-      TO_DATE(FECTRX)      AS FECTRANSACCION,
-      CODCLAVEPARTYCLI
-  FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.H_TRANSACCIONADELANTOCUENTASUELDO
-  WHERE
-      DESTRX = 'ADELANTO SUELDO'
-      AND DESOPECTASUELDO = 'DISPOSICION'
-),
-RESULT_BASE AS (
-  SELECT
-      A.CODINTERNOCOMPUTACIONAL,
-      A.OPORTUNIDAD,
-      A.FECCREACION,
-      A.CODMES,
-      A.MES,
-      A.PERIODO,
-      A.ESTADO,
-      CASE WHEN A.ESTADO = 'ACEPTADAS' THEN 1 ELSE 0 END AS FLGAPROBADA,
-      CASE WHEN A.ESTADO = 'DENEGADAS' THEN 1 ELSE 0 END AS FLGDENEGADA,
-      CASE WHEN NVL(COUNT(B.FECTRANSACCION), 0) > 0 THEN 1 ELSE 0 END AS FLG_ADS_U3M
-  FROM BASE A
-  LEFT JOIN TRANSACCIONES_ADS B
-    ON B.CODCLAVEPARTYCLI = A.CODCLAVEPARTYCLI
-   AND B.FECTRANSACCION BETWEEN ADD_MONTHS(A.FECCREACION, -3) AND A.FECCREACION
-  GROUP BY ALL
-)
-SELECT
-    CODMES,           -- para ordenar fácil en Excel
-    MES,              -- etiqueta YYYY-MM
-    PERIODO,          -- ANTES / DESPUES
-    FLG_ADS_U3M,      -- 1=tuvo ADS últimos 3M, 0=no
-    COUNT(*)                                  AS solicitudes,
-    SUM(FLGAPROBADA)                          AS aprobadas,
-    SUM(FLGDENEGADA)                          AS denegadas,
-    -- Tasa de aprobación y denegación (evita división por 0)
-    ROUND(
-      CASE WHEN COUNT(*) = 0 THEN NULL
-           ELSE SUM(FLGAPROBADA) * 1.0 / COUNT(*)
-      END, 4
-    ) AS tasa_aprob,
-    ROUND(
-      CASE WHEN COUNT(*) = 0 THEN NULL
-           ELSE SUM(FLGDENEGADA) * 1.0 / COUNT(*)
-      END, 4
-    ) AS tasa_deneg
-FROM RESULT_BASE
-GROUP BY CODMES, MES, PERIODO, FLG_ADS_U3M
-ORDER BY CODMES, PERIODO, FLG_ADS_U3M;
+De mi base también tengo estos campos extras quizá podamos utilziarlos para generar cortes/filtros en power bi mejor
+
+schema = StructType([
+    StructField("OPORTUNIDAD", StringType(), True),
+    StructField("CODINTERNOCOMPUTACIONAL", StringType(), True),
+    StructField("TIPPRODUCTO", StringType(), True),
+    StructField("TIPOPERACION", StringType(), True),
+    StructField("PRODUCTO", StringType(), True),
+    StructField("CAMPANIA", StringType(), True),
+    StructField("TIPEVALUACION", StringType(), True),
+    StructField("ESTADO", StringType(), True),
+    StructField("MTOSOLICITADO", StringType(), True),
+    StructField("MTOAPROBADO", IntegerType(), True),
+    StructField("MTODESEMBOLSADO", IntegerType(), True),
+    StructField("FECCREACION", StringType(), True),
+    StructField("SEGMENTO", StringType(), True)
+])
