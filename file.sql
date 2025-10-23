@@ -3,9 +3,8 @@ df_pendientes_cef_base = df_pendientes_cef.loc[
     ["OPORTUNIDAD", "DESPRODUCTO", "ESTADOAPROBACION", "ANALISTA", "FECINICIOEVALUACION"]
 ].copy()
 
-df_pendientes_cef_base["FECHA"] = df_pendientes_cef_base["FECINICIOEVALUACION"].astype(str).str[:10]
-df_pendientes_cef_base["HORA"] = df_pendientes_cef_base["FECINICIOEVALUACION"].astype(str).str[11:]
-df_pendientes_cef_base["FECHAHORA"] = df_pendientes_cef_base["FECINICIOEVALUACION"].astype(str).str[:16]
+df_pendientes_cef_base["FECHA"] = df_pendientes_cef_base["FECINICIOEVALUACION"].dt.date
+df_pendientes_cef_base["HORA"] = df_pendientes_cef_base["FECINICIOEVALUACION"].dt.time
 df_pendientes_cef_base["DESPRODUCTO"] = df_pendientes_cef_base["DESPRODUCTO"].astype(str).str.upper()
 
 prod_cef = {
@@ -29,8 +28,7 @@ df_pendientes_cef_final = df_pendientes_cef_base.rename(columns={
     "DESPRODUCTO": "TIPOPRODUCTO",
     "ESTADOAPROBACION": "RESULTADOANALISTA"
 })[[
-    "OPORTUNIDAD", "TIPOPRODUCTO", "RESULTADOANALISTA",
-    "ANALISTA", "FECHA", "HORA", "EXPERTISE", "FECHAHORA", "EQUIPO"
+    "OPORTUNIDAD", "TIPOPRODUCTO", "RESULTADOANALISTA", "FECINICIOEVALUACION", "FECHA", "HORA", "ANALISTA", "EXPERTISE", "EQUIPO"
 ]].copy()
 
 df_pendientes_cef_final["FLGPENDIENTE"] = 1
