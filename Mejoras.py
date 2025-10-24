@@ -1,3 +1,3 @@
-df_organico.to_csv(
-    "OUTPUT/ORGANICO_EDV.csv", index=False, encoding="utf-8-sig"
-)
+SELECT OPORTUNIDAD FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_BASE_CENTRALIZADO;
+
+SELECT CODSOLICITUD FROM catalog_lhcl_prod_bcp.bcp_udv_int_vu.m_solicitudtarjetacredito;
