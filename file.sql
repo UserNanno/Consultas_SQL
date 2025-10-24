@@ -1,1 +1,1 @@
-=CONTAR.SI(DESREF(A5;0;0;COINCIDIR("Total general";A:A;0)-FILA(A5));"<>*EQUIPO*")
+=CONTAR.SI(DESREF(A61;0;0;COINCIDIR("Total general";A:A;0)-FILA(A61));"<>*EQUIPO*")
