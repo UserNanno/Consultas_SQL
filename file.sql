@@ -1,12 +1,9 @@
-# Suponiendo que:
-# tp_powerapp["ANALISTA"]  → nombres de analistas en el primer DF
-# df_analistas["NOMBREPOWERAPP"] → nombres válidos en el segundo DF
-
-faltantes = tp_powerapp.loc[
-    ~tp_powerapp["ANALISTA"].isin(df_analistas["NOMBREPOWERAPP"])
+# Lista de analistas a excluir
+analistas_excluir = [
+    'ANALISTA1',
+    'ANALISTA2',
+    'ANALISTA3'
 ]
 
-faltantes_analistas = faltantes["ANALISTA"].unique()
-
-print(f"Analistas no encontrados ({len(faltantes_analistas)}):")
-print(faltantes_analistas)
+# Filtrar: quedarse con todos los que NO estén en esa lista
+tp_powerapp = tp_powerapp[~tp_powerapp['ANALISTA'].isin(analistas_excluir)]
