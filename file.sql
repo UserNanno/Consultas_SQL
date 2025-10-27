@@ -1,4 +1,307 @@
---NUEVO TC
+--NUEVO
+WITH base AS (
+  SELECT
+    A.codsolicitud AS codsolicitud,
+    to_timestamp(concat(substr(cast(A.fecsolicitud AS STRING), 1, 10),' ',concat(lpad(cast(floor(A.horsolicitud / 10000) AS STRING), 2, '0'),':',lpad(cast(floor((A.horsolicitud / 100) % 100) AS STRING), 2, '0'),':',lpad(cast(floor(a.horsolicitud % 100) AS STRING), 2, '0') ) )) AS Fecha_Registro,
+    CASE
+      WHEN A.codmatriculacolaboradoraprobador IS NOT NULL THEN 'EVALUACION EN CENTRALIZADO'
+      ELSE 'EVALUACION AUTOMATICA'
+    END AS TipoEvaluacion,
+    CASE
+      WHEN A.destipflujoventatarjetacredito = 'EP' THEN 'TARJETA CREDITO STOCK'
+      WHEN A.destipflujoventatarjetacredito = 'SEGUNDA TC' THEN 'TARJETA CREDITO NUEVA'
+      WHEN A.destipflujoventatarjetacredito = 'TC' THEN 'TARJETA CREDITO NUEVA'
+      WHEN A.destipflujoventatarjetacredito = 'PTC' THEN 'TARJETA CREDITO STOCK'
+      WHEN A.destipflujoventatarjetacredito = 'BT' THEN 'TARJETA CREDITO STOCK'
+      WHEN A.destipflujoventatarjetacredito = 'AMPLIACION' THEN 'TARJETA CREDITO STOCK'
+      WHEN A.destipflujoventatarjetacredito = 'UPGRADE' THEN 'TARJETA CREDITO STOCK'
+      WHEN A.destipflujoventatarjetacredito = 'ADICIONAL' THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'PRESTAMO TAR') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'PRÉSTAMO TAR') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'PTC') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'EP') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'BALANCE TRA') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'TC+BT') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'BT') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'AMPLIACION') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'AMPLIACIÓN') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'UPGRADE') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'UPG') THEN 'TARJETA CREDITO STOCK'
+      WHEN contains(A.descampania,'ADICIONAL') THEN 'TARJETA CREDITO STOCK'
+      ELSE 'Sin data'
+    END AS TipoProducto,
+    CASE
+      WHEN A.destipflujoventatarjetacredito = 'EP' THEN 'PTC'
+      WHEN A.destipflujoventatarjetacredito = 'SEGUNDA TC' THEN 'TC'
+      WHEN A.destipflujoventatarjetacredito IS NOT NULL THEN A.destipflujoventatarjetacredito
+      WHEN contains(A.descampania,'PRESTAMO TAR') THEN 'PTC'
+      WHEN contains(A.descampania,'PRÉSTAMO TAR') THEN 'PTC'
+      WHEN contains(A.descampania,'PTC') THEN 'PTC'
+      WHEN contains(A.descampania,'EP') THEN 'PTC'
+      WHEN contains(A.descampania,'BALANCE TRA') THEN 'BT'
+      WHEN contains(A.descampania,'TC+BT') THEN 'BT'
+      WHEN contains(A.descampania,'BT') THEN 'BT'
+      WHEN contains(A.descampania,'AMPLIACION') THEN 'AMPLIACION'
+      WHEN contains(A.descampania,'AMPLIACIÓN') THEN 'AMPLIACION'
+      WHEN contains(A.descampania,'UPGRADE') THEN 'UPGRADE'
+      WHEN contains(A.descampania,'UPG') THEN 'UPGRADE'
+      WHEN contains(A.descampania,'ADICIONAL') THEN 'ADICIONAL'
+      ELSE 'Sin data'
+    END AS SubProducto,
+    A.desproducto AS Detproducto,
+    CASE
+      WHEN A.tipestadosolicitud ='ACPD' THEN 'ACEPTADA'
+      WHEN A.tipestadosolicitud ='DCLD' THEN 'DENEGADA'
+      WHEN A.tipestadosolicitud ='ENPR' THEN 'EN PROCESO'
+      WHEN A.tipestadosolicitud ='IRFC' THEN 'INGRESADO'
+      WHEN A.tipestadosolicitud ='EEEL' THEN 'EN PROCESO DE CALIFICACION'
+      WHEN A.tipestadosolicitud ='DIGI' THEN 'DIGITADO'
+      ELSE 'Sin data'
+    END AS EstadoSolicitud,
+    CASE
+      WHEN A.tipestadosolicitud ='ACPD' AND A.destipetapa = 'CERRADA' THEN 'ACEPTADA'
+      WHEN A.tipestadosolicitud ='DCLD' AND A.destipetapa = 'RECHAZADA' THEN 'DENEGADA'
+      WHEN A.tipestadosolicitud ='DCLD' AND A.destipetapa = 'DESESTIMADA' THEN 'DESESTIMADA'
+      WHEN A.tipestadosolicitud ='DCLD' AND A.destipetapa = 'PERDIDA' THEN 'DESESTIMADA'
+      WHEN A.tipestadosolicitud ='ENPR' THEN 'EN PROCESO'
+      WHEN A.tipestadosolicitud ='IRFC' THEN 'INGRESADO'
+      WHEN A.tipestadosolicitud ='EEEL' THEN 'EN PROCESO DE CALIFICACION'
+      WHEN A.tipestadosolicitud ='DIGI' THEN 'DIGITADO'
+      ELSE 'SIn data'
+    END AS Estado_F,
+    NULL AS ResultadoMotorCDA,
+    A.desmotivocda AS MotivoCDA,
+    A.destipetapa AS Etapa,
+    NULL AS justificacion_analista,
+    A.descomentario AS ComentarioAnalista,
+    A.descampania AS Campana,
+    CASE
+      WHEN contains(A.descampania,'100%') THEN '100% APROBADO'
+      WHEN contains(A.descampania,'PREAPR') THEN 'PREAPROBADO'
+      WHEN contains(A.descampania,'SIN CAMP') THEN 'SIN CAMPAÑA'
+      WHEN contains(A.descampania,'INVITA') THEN 'INVITADO'
+      WHEN A.destipflujoventatarjetacredito = 'EP' THEN 'PTC'
+      WHEN A.destipflujoventatarjetacredito = 'SEGUNDA TC' THEN 'TC'
+      WHEN A.destipflujoventatarjetacredito IS NOT NULL THEN A.destipflujoventatarjetacredito
+      WHEN contains(A.descampania,'PRESTAMO TAR') THEN 'PTC'
+      WHEN contains(A.descampania,'PRÉSTAMO TAR') THEN 'PTC'
+      WHEN contains(A.descampania,'PTC') THEN 'PTC'
+      WHEN contains(A.descampania,'EP') THEN 'PTC'
+      WHEN contains(A.descampania,'BALANCE TRA') THEN 'BT'
+      WHEN contains(A.descampania,'TC+BT') THEN 'BT'
+      WHEN contains(A.descampania,'BT') THEN 'BT'
+      WHEN contains(A.descampania,'AMPLIACION') THEN 'AMPLIACION'
+      WHEN contains(A.descampania,'AMPLIACIÓN') THEN 'AMPLIACION'
+      WHEN contains(A.descampania,'UPGRADE') THEN 'UPGRADE'
+      WHEN contains(A.descampania,'UPG') THEN 'UPGRADE'
+      WHEN contains(A.descampania,'ADICIONAL') THEN 'ADICIONAL'
+      ELSE 'Sin data'
+    END AS CampanaCorta2,
+    A.nbrmoneda AS Moneda,
+    A.mtosolicitado AS MontoSolicitado,
+    A.mtoaprobado AS MontoAprobado,
+    to_timestamp(concat(substr(cast(A.fecinicioevaluacion AS STRING), 1, 10),' ',concat(lpad(cast(floor(A.horinicioevaluacion / 10000) AS STRING), 2, '0'),':',lpad(cast(floor((A.horinicioevaluacion / 100) % 100) AS STRING), 2, '0'),':',lpad(cast(floor(a.horinicioevaluacion % 100) AS STRING), 2, '0')))) AS Inicio_Evaluacion,
+    to_timestamp(concat(substr(cast(A.fecfinevaluacion AS STRING), 1, 10),' ', concat(lpad(cast(floor(A.horfinevaluacion / 10000) AS STRING), 2, '0'), ':', lpad(cast(floor((A.horfinevaluacion / 100) % 100) AS STRING), 2, '0'),':',lpad(cast(floor(a.horfinevaluacion % 100) AS STRING), 2, '0')))) AS Fin_Evaluacion,
+    A.fecemisiontarjetacredito AS fecdesembolso,
+    A.codmatriculacolaboradoraprobador AS MatriculaAnalista,
+    A.codmatriculacolaboradorvendedor AS MatriculaVendedor,
+    A.codinternocomputacional AS Codclavecic,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.flgclipagohaberesbcp ELSE NULL END AS Cliente_PDH,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.tiprenta ELSE NULL END AS Tipo_RentaTitular,
+    CASE WHEN IND2.destiprolsolicitud ='CONYUGE' THEN IND2.tiprenta ELSE NULL END AS Tipo_RentaConyuge,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.numpuntajeprecalif ELSE NULL END AS ScoreEvaluacion,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.tippartyidentificacion ELSE NULL END AS TipoIdcTitular,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.mtoingresodigitado ELSE NULL END AS Ingreso_Bruto_Titular,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.mtootroingresodigitado ELSE NULL END AS OtrosIngreso_Bruto_Titular,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.mtoingresocalculado ELSE NULL END AS Ingreso_Promedio_Titular,
+    CASE WHEN IND2.destiprolsolicitud ='CONYUGE' THEN IND2.tippartyidentificacion ELSE NULL END AS TipoIdc_Conyuge,
+    CASE WHEN IND2.destiprolsolicitud ='CONYUGE' THEN IND2.mtoingresodigitado ELSE NULL END AS Ingreso_Bruto_Conyuge,
+    CASE WHEN IND2.destiprolsolicitud ='CONYUGE' THEN IND2.mtootroingresodigitado ELSE NULL END AS OtrosIngreso_Bruto_Conyuge,
+    CASE WHEN IND2.destiprolsolicitud ='CONYUGE' THEN IND2.mtoingresocalculado ELSE NULL END AS Ingreso_Promedio_Conyuge,
+    A.mtocuotamensualaprobado AS CuotamensualAprobado,
+    NULL AS PlazoSolicitado,
+    NULL AS PlazoAprobado,
+    A.pcttasaefectivaanualsolicitud AS TasaSolicitada,
+    NULL AS TasaAprobada,
+    IND.mtocem AS CEM,
+    IND.mtocemasesorventa AS CEM_Vendedor,
+    IND.mtocemanalistacredito AS CEM_Analista,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.dessubsegmento ELSE NULL END AS SegmentoTitular,
+    NULL AS Posicion_Consolidada,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.codsegmentoriesgoscore ELSE NULL END AS SegmentoRiesgosTitular,
+    CASE WHEN IND2.destiprolsolicitud ='CONYUGE' THEN IND2.mtoingresocalculado ELSE NULL END AS SegmentoRiesgosConyuge,
+    NULL AS mto_desembolsado,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.destipniveleducacional ELSE NULL END AS Grado_Instruccion,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.destipocupacion ELSE NULL END AS Situacion_LaboralTitular,
+    CASE WHEN IND2.destiprolsolicitud ='CONYUGE' THEN IND2.destipocupacion ELSE NULL END AS Situacion_LaboralConyuge,
+    CASE WHEN PTY.destiprolsolicitud ='TITULAR' THEN PTY.destipclasifriesgocli ELSE NULL END AS Clasificacion_SbsTitular,
+    CASE WHEN PTY2.destiprolsolicitud ='CONYUGE' THEN PTY2.destipclasifriesgocli ELSE NULL END AS Clasificacion_SbsConyuge,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.numdependiente ELSE NULL END AS N_DependientesTitular,
+    CASE WHEN IND.destiprolsolicitud ='TITULAR' THEN IND.destipestcivil ELSE NULL END AS EstadoCivil,
+    P1.DESPOSICIONCOLABORADOR AS FuncionVendedor,
+    A.mtoingresobrutosolicitud AS IngresoVerificado,
+    day(A.fecsolicitud) AS DiaSolicitud,
+    month(A.fecsolicitud) AS MesSolicitud,
+    year(A.fecsolicitud) AS AnoSolicitud,
+    date_format(A.fecsolicitud,'yyyyMM') AS AnoMesSolicitud,
+    CASE
+      WHEN IND.numpuntajeprecalif <= 0 THEN 'Sin data'
+      WHEN IND.numpuntajeprecalif <= 300 THEN 'A. 0-300'
+      WHEN IND.numpuntajeprecalif <= 330 THEN 'B. 300-330'
+      WHEN IND.numpuntajeprecalif <= 360 THEN 'C. 330-360'
+      WHEN IND.numpuntajeprecalif <= 390 THEN 'D. 360-390'
+      WHEN IND.numpuntajeprecalif <= 420 THEN 'E. 390-420'
+      WHEN IND.numpuntajeprecalif <= 450 THEN 'F. 42-450'
+      ELSE NULL
+    END AS Rango_Score,
+    CASE
+      WHEN A.nbrmoneda = 'DOLAR AMERICANO             EE.UU       ' THEN A.mtosolicitado * 3.81
+      ELSE A.mtosolicitado
+    END AS MontoSolicitado_Soles,
+    CASE
+      WHEN A.nbrmoneda = 'DOLAR AMERICANO             EE.UU       ' THEN A.mtoaprobado * 3.81
+      ELSE A.mtoaprobado
+    END AS MontoAprobado_Soles
+  FROM catalog_lhcl_prod_bcp.bcp_udv_int_v.m_solicitudtarjetacredito A
+  LEFT JOIN catalog_lhcl_prod_bcp.bcp_udv_int_v.M_USUARIOAPLICATIVO P1
+    ON A.codcolaboradorvendedor = P1.CODUSUARIOAPP
+  LEFT JOIN bcp_udv_int_v.m_solicitudindividuo IND
+    ON A.codsolicitud = IND.codsolicitud
+    AND IND.destiprolsolicitud = 'TITULAR'
+  LEFT JOIN bcp_udv_int_v.m_solicitudindividuo IND2
+    ON A.codsolicitud = IND2.codsolicitud
+    AND IND2.destiprolsolicitud = 'CONYUGE'
+  LEFT JOIN bcp_udv_int_v.m_solicitudparty PTY
+    ON A.codsolicitud = PTY.codsolicitud
+    AND PTY.destiprolsolicitud = 'TITULAR'
+  LEFT JOIN bcp_udv_int_v.m_solicitudparty PTY2
+    ON A.codsolicitud = PTY2.codsolicitud
+    AND PTY2.destiprolsolicitud = 'CONYUGE'
+  WHERE A.codtipregapp IN ('0126O000001xsIYQAY','0126O000001h0WaQAI','0126O000001h0WbQAI')
+    AND A.fecsolicitud >= '2025-10-01'
+)
+SELECT DISTINCT
+  codsolicitud,
+  Fecha_Registro,
+  TipoEvaluacion,
+  TipoProducto,
+  SubProducto,
+  Detproducto,
+  EstadoSolicitud,
+  EstadoSolicitud AS ResultadoAnalista,
+  Estado_F,
+  ResultadoMotorCDA,
+  MotivoCDA,
+  Etapa,
+  justificacion_analista,
+  ComentarioAnalista,
+  Campana,
+  CampanaCorta2,
+  Moneda,
+  MontoSolicitado,
+  MontoAprobado,
+  Inicio_Evaluacion,
+  Fin_Evaluacion,
+  fecdesembolso,
+  MatriculaAnalista,
+  MatriculaVendedor,
+  Codclavecic,
+  Cliente_PDH,
+  Tipo_RentaTitular,
+  Tipo_RentaConyuge,
+  ScoreEvaluacion,
+  TipoIdcTitular,
+  Ingreso_Bruto_Titular,
+  OtrosIngreso_Bruto_Titular,
+  Ingreso_Promedio_Titular,
+  TipoIdc_Conyuge,
+  Ingreso_Bruto_Conyuge,
+  OtrosIngreso_Bruto_Conyuge,
+  Ingreso_Promedio_Conyuge,
+  CuotamensualAprobado,
+  PlazoSolicitado,
+  PlazoAprobado,
+  TasaSolicitada,
+  TasaAprobada,
+  CEM,
+  CEM_Vendedor,
+  CEM_Analista,
+  SegmentoTitular,
+  Posicion_Consolidada,
+  SegmentoRiesgosTitular,
+  SegmentoRiesgosConyuge,
+  mto_desembolsado,
+  Grado_Instruccion,
+  Situacion_LaboralTitular,
+  Situacion_LaboralConyuge,
+  Clasificacion_SbsTitular,
+  Clasificacion_SbsConyuge,
+  N_DependientesTitular,
+  EstadoCivil,
+  FuncionVendedor,
+  IngresoVerificado,
+  DiaSolicitud,
+  MesSolicitud,
+  AnoSolicitud,
+  AnoMesSolicitud,
+  Rango_Score,
+  MontoSolicitado_Soles,
+  MontoAprobado_Soles,
+  NULL AS MontoDesembolsado_Soles,
+  NULL AS Flag_MontoDesembolsado_Soles,
+  CASE
+    WHEN MontoSolicitado_Soles <= 0 THEN 'Sin data'
+    WHEN MontoSolicitado_Soles <= 23000 THEN 'A. 0-23k'
+    WHEN MontoSolicitado_Soles <= 46000 THEN 'B. 23k-46k'
+    WHEN MontoSolicitado_Soles <= 69000 THEN 'C. 46k-69k'
+    WHEN MontoSolicitado_Soles <= 92000 THEN 'D. 69k-92k'
+    WHEN MontoSolicitado_Soles <= 115000 THEN 'E. 92k-115k'
+    WHEN MontoSolicitado_Soles <= 138000 THEN 'F. 115k-138k'
+    WHEN MontoSolicitado_Soles <= 160000 THEN 'G. 138k-160k'
+    ELSE 'H. >160k'
+  END AS Rango_MontoSolicitado_Soles,
+  date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 AS TiempoCliente_Hrs,
+  date_diff(second, Inicio_Evaluacion, Fin_Evaluacion) / 3600 AS TiempoAnalista_Hrs,
+  date_diff(second, Fecha_Registro, Fin_Evaluacion) AS TotalSegundo_TiempoCliente,
+  date_diff(second, Inicio_Evaluacion, Fin_Evaluacion) AS TotalSegundo_TiempoAnalista,
+  CASE
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) IS NULL THEN NULL
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 <= 24 THEN 'Dentro 24hrs'
+    ELSE 'Mayor 24hrs'
+  END AS Atencion24HrsCliente,
+  CASE
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) IS NULL THEN NULL
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 <= 12 THEN 'Dentro 12hrs'
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 <= 24 THEN 'Dentro 24hrs'
+    ELSE 'Mayor 24hrs'
+  END AS Atencion12HrsCliente,
+  CASE
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) IS NULL THEN NULL
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 <= 0 THEN 'Sin data'
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 <= 3 THEN 'A. 0-3'
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 <= 6 THEN 'B. 3-6'
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 <= 12 THEN 'C. 6-12'
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 <= 18 THEN 'D. 12-18'
+    WHEN date_diff(second, Fecha_Registro, Fin_Evaluacion) / 3600 <= 24 THEN 'E. 18-24'
+    ELSE 'F. >24'
+  END AS RangoAtencionCliente
+FROM base;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ TC
 Select 
 DISTINCT (A.codsolicitud) AS codsolicitud,
 --A.tipclasifinternasolicitud AS tipclasifinternasolicitud,
