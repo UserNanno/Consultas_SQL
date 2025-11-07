@@ -1,50 +1,13 @@
-import pandas as pd
+Tengo este dataframe
+tp_powerapp_clean.head(2)
+dodne tengo estas columnas (CODSOLICITUD	FECASIGNACION	PRODUCTO	RESULTADOANALISTA	CORREO	MOTIVORESULTADOANALISTA	CODMES	CREATED	MOTIVOMALADERIVACION	SUBMOTIVOMALADERIVACION	FECCREACION	HORACREACION	FECHORACREACION)
 
-# 1) Normalizar llaves
-def _norm(df):
-    df = df.copy()
-    df["CORREO"] = df["CORREO"].str.strip().str.lower()
-    # Asegurar tipo consistente de CODMES (elige uno: string o int). Aquí string.
-    df["CODMES"] = df["CODMES"].astype(str).str.strip()
-    return df
+También tengo este otro dataframe
+df_organico.head(2)
+donde tengo estas columnas (CODMES	FECINGRESO MATORGANICO	NOMBRECOMPLETO	AREATRIBUCOE	SERVICIOTRIBUCOE	UNIDADORGANIZATIVA	CORREO	AGENCIA	FUNCION	MATSUPERIOR)
+Acá en el campo Correo hay valores "-" deberiamos quitarlos.
 
-tp = _norm(tp_powerapp_clean)
-org = _norm(df_organico)
-
-# 2) Dejar único df_organico por (CODMES, CORREO)
-#    ⚠️ Si existe más de un registro por llave, nos quedamos con el "último".
-#    Si tienes una columna de fecha de vigencia/actualización, ordénala aquí para que "último" signifique “más reciente”.
-#    Ejemplo alternativo (si tuvieras FECHA_ACT): .sort_values(["CODMES","CORREO","FECHA_ACT"])
-org_unique = (
-    org
-    .sort_values(["CODMES","CORREO"])  # ajusta el criterio si tienes una fecha mejor
-    .drop_duplicates(subset=["CODMES","CORREO"], keep="last")
-)
-
-# 2.1) Comprobar si aún quedan llaves duplicadas en org (no debería)
-dups = (org.groupby(["CODMES","CORREO"]).size()
-        .reset_index(name="n").query("n>1"))
-if not dups.empty:
-    print("Ojo: hay llaves duplicadas en df_organico. Revisa estas combinaciones:")
-    print(dups.head(20))
-
-# 3) Merge many-to-one (añadir solo MATORGANICO; agrega más columnas si quieres)
-cols_to_add = ["CODMES", "CORREO", "MATORGANICO"]
-org_for_merge = org_unique[cols_to_add]
-
-# validate='many_to_one' hará raise si org_for_merge rompe unicidad de la llave.
-tp_enriquecido = tp.merge(
-    org_for_merge,
-    on=["CODMES","CORREO"],
-    how="left",
-    validate="many_to_one",
-    suffixes=("", "_org")
-)
-
-# 4) Chequeos útiles (opcionales)
-# 4a) ¿Cuántos analistas quedaron sin MATORGANICO?
-faltantes = tp_enriquecido["MATORGANICO"].isna().sum()
-print(f"Registros sin MATORGANICO tras el cruce: {faltantes}")
-
-# 4b) Ver si el merge hubiera expandido filas (no debería)
-assert len(tp_enriquecido) == len(tp), "El merge duplicó filas: revisa unicidad en df_organico."
+Paso 1: Lo que necesito primero es buscar todos los crreos que aparecen en tp_powerapp_clean y en qué mes
+Paso 2: Luego debo verificar que todos esos correos los tenga en df_organico en el mismo mes que se encontré en tp_powerapp_clean
+Paso 3: Si existe coincidencia vamos a crear un dataframe nuevo donde tengamos un solo registro por CODMES, MATORGANICO y CORREO (tomaremos el correo mas actual por FECINGRESO en ese CODMES). Acá verificar que por ejemplo si bien hay dos matrículas distintas, puede tener un mismo correo y viceverwsa. Quedarse con el de FECINGRESO mas actual para ese CODMES
+Paso 3: Luego que se haya garantizado que ese nuevo dataframe tenga valores unicos por matrícual y correo en el CODMES se debe agregar a tp_powerapp_clean el MATORGANICO y renombrarlo como MATANALISTA
