@@ -1,52 +1,50 @@
-# 1) Normalizar
-tp_powerapp_clean["CODMES"] = tp_powerapp_clean["CODMES"].astype(str)
-df_organico["CODMES"] = df_organico["CODMES"].astype(str)
+import pandas as pd
 
-tp_powerapp_clean["CORREO"] = tp_powerapp_clean["CORREO"].str.lower().str.strip()
-df_organico["CORREO"] = df_organico["CORREO"].str.lower().str.strip()
+# 1) Normalizar llaves
+def _norm(df):
+    df = df.copy()
+    df["CORREO"] = df["CORREO"].str.strip().str.lower()
+    # Asegurar tipo consistente de CODMES (elige uno: string o int). Aquí string.
+    df["CODMES"] = df["CODMES"].astype(str).str.strip()
+    return df
 
-# 2) Asegurar llave única en df_organico
-# (a) Detectar si hay más de un MATORGANICO por CODMES+CORREO
-conflictos = (
-    df_organico.groupby(["CODMES", "CORREO"])["MATORGANICO"]
-    .nunique()
-    .reset_index(name="n_unicos")
-)
-conflictos = conflictos[conflictos["n_unicos"] > 1]
+tp = _norm(tp_powerapp_clean)
+org = _norm(df_organico)
 
-print(conflictos)
-        CODMES                    CORREO  n_unicos
-0       202501                         -        78
-26019   202502                         -        80
-52152   202503                         -        77
-78434   202504                         -        91
-104782  202505                         -       337
-113954  202505                    correo         2
-131085  202506                         -        72
-157915  202507                         -        86
-185008  202508                         -        82
-212451  202509                         -        64
-240289  202510                         -        89
-
-# Si hay conflictos, decide tu regla. Ejemplos de reglas:
-# - Quedarte con la última fila según algún criterio temporal si existiera (p.ej. FECHA_ALTA)
-# - O, si no hay fecha, quedarte con la última aparición en el propio df (mantener consistencia)
-
-# (b) Resolver duplicados (sin columna temporal, nos quedamos con la última aparición)
-df_org_unico = (
-    df_organico
-    .sort_values(["CODMES", "CORREO"])                # ajusta el orden si tienes una fecha y prefieres "más reciente"
-    .drop_duplicates(["CODMES", "CORREO"], keep="last")
+# 2) Dejar único df_organico por (CODMES, CORREO)
+#    ⚠️ Si existe más de un registro por llave, nos quedamos con el "último".
+#    Si tienes una columna de fecha de vigencia/actualización, ordénala aquí para que "último" signifique “más reciente”.
+#    Ejemplo alternativo (si tuvieras FECHA_ACT): .sort_values(["CODMES","CORREO","FECHA_ACT"])
+org_unique = (
+    org
+    .sort_values(["CODMES","CORREO"])  # ajusta el criterio si tienes una fecha mejor
+    .drop_duplicates(subset=["CODMES","CORREO"], keep="last")
 )
 
-# 3) Merge protegido
-tp_powerapp_clean = tp_powerapp_clean.merge(
-    df_org_unico[["CODMES", "CORREO", "MATORGANICO"]],
-    on=["CODMES", "CORREO"],
+# 2.1) Comprobar si aún quedan llaves duplicadas en org (no debería)
+dups = (org.groupby(["CODMES","CORREO"]).size()
+        .reset_index(name="n").query("n>1"))
+if not dups.empty:
+    print("Ojo: hay llaves duplicadas en df_organico. Revisa estas combinaciones:")
+    print(dups.head(20))
+
+# 3) Merge many-to-one (añadir solo MATORGANICO; agrega más columnas si quieres)
+cols_to_add = ["CODMES", "CORREO", "MATORGANICO"]
+org_for_merge = org_unique[cols_to_add]
+
+# validate='many_to_one' hará raise si org_for_merge rompe unicidad de la llave.
+tp_enriquecido = tp.merge(
+    org_for_merge,
+    on=["CODMES","CORREO"],
     how="left",
-    validate="m:1"   # m:1 = muchas filas de tp_powerapp_clean a 1 de df_org_unico
+    validate="many_to_one",
+    suffixes=("", "_org")
 )
 
-# (Opcional) Chequeo de seguridad: asegurar que no creció el número de filas
-assert len(tp_powerapp_clean) == len(tp_powerapp_clean.drop_duplicates(subset=["CODSOLICITUD"])), \
-       "Advertencia: se podrían haber generado duplicados de solicitudes."
+# 4) Chequeos útiles (opcionales)
+# 4a) ¿Cuántos analistas quedaron sin MATORGANICO?
+faltantes = tp_enriquecido["MATORGANICO"].isna().sum()
+print(f"Registros sin MATORGANICO tras el cruce: {faltantes}")
+
+# 4b) Ver si el merge hubiera expandido filas (no debería)
+assert len(tp_enriquecido) == len(tp), "El merge duplicó filas: revisa unicidad en df_organico."
