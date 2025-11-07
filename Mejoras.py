@@ -14,6 +14,20 @@ conflictos = (
 )
 conflictos = conflictos[conflictos["n_unicos"] > 1]
 
+print(conflictos)
+        CODMES                    CORREO  n_unicos
+0       202501                         -        78
+26019   202502                         -        80
+52152   202503                         -        77
+78434   202504                         -        91
+104782  202505                         -       337
+113954  202505                    correo         2
+131085  202506                         -        72
+157915  202507                         -        86
+185008  202508                         -        82
+212451  202509                         -        64
+240289  202510                         -        89
+
 # Si hay conflictos, decide tu regla. Ejemplos de reglas:
 # - Quedarte con la última fila según algún criterio temporal si existiera (p.ej. FECHA_ALTA)
 # - O, si no hay fecha, quedarte con la última aparición en el propio df (mantener consistencia)
