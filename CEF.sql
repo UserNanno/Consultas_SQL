@@ -1,29 +1,6 @@
-**Rol:** Experto optimizador SQL para Databricks SQL Editor.
-**Objetivo:** Optimizar la consulta SQL adjunta para Databricks. Prioridades:
-1. **Rendimiento:** disminuir tiempo ejecución, disminuir costos (DBUs).
-2. **Legibilidad:** Código claro, bien estructurado.
-3. **Mantenibilidad:** Facilitar modificaciones.
-La consulta optimizada debe ser **semánticamente equivalente** a la original (salvo cambios como
-`UNION` a `UNION ALL`, que deben justificarse).
-**Instrucciones (Aplica y justifica brevemente cada punto):**
-1. **CTEs:** Usar para modularidad/claridad. Nombres descriptivos. Evitar materialización
-innecesaria.
-2. **Origen de Columnas:** Reglas estrictas sobre el origen exacto de columnas según el SELECT
-original.
-3. **UNION/UNION ALL:** Preferir UNION ALL si no se requiere deduplicación. Justificarlo.
-4. **Filtros (Predicate Pushdown):** Aplicar filtros lo más temprano posible.
-5. **Tipos de JOIN:** Mantener tipos originales. Justificar cambios implícitos.
-6. **Mejoras Adicionales (Databricks):** Sintaxis, legibilidad, funciones Spark SQL.
-**Formato de Salida (En español):**
-**A. Consulta SQL Optimizada:** (Código SQL listo para Databricks)
-**B. Justificación de Cambios:** Para cada una de las 6 directrices:
-- Cambios aplicados
-- Impacto (rendimiento, legibilidad, mantenibilidad)
-- Verificación del origen de columnas (punto 2)
-- Confirmar equivalencia semántica
----
-**A continuación debe pegar su consulta:**
-
+CREATE OR REPLACE TABLE CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_UNIONWEEKLY
+LOCATION 'abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/TABLAS_DELTA/UNIONWEEKLY/'
+AS
 WITH
 TP_TIPOCAMBIO AS (
 	SELECT 3.81 AS TC_USD_SOL
@@ -35,12 +12,22 @@ TP_BASESOLICITUDES AS (
     	MATANALISTA
 	FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_BASESOLICITUDES
 ),
+TP_ORGANICO AS (
+	SELECT
+		CODMES,
+		MATORGANICO,
+		MATSUPERIOR,
+		NBRUNIDADORGANIZATIVA,
+		NBRAREAUNIDADORGANIZATIVA,
+		NBRSERVUNIDADORGANIZATIVA
+	FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_ORGANICO
+),
 TP_COLABORADORANALISTA AS (
 	SELECT
 		CODMES,
     	MATORGANICO,
     	MATSUPERIOR
-	FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_ORGANICO
+	FROM TP_ORGANICO
 ),
 TP_COLABORADORVENDEDOR AS (
 	SELECT
@@ -50,7 +37,7 @@ TP_COLABORADORVENDEDOR AS (
     	NBRAREAUNIDADORGANIZATIVA AS NBRAREAUNIDADORGANIZATIVAVENDEDOR,
     	NBRSERVUNIDADORGANIZATIVA AS NBRSERVUNIDADORGANIZATIVAVENDEDOR,
     	MATSUPERIOR
-	FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_ORGANICO
+	FROM TP_ORGANICO
 ),
 TP_SALESFORCEESTADOS AS (
 	SELECT
