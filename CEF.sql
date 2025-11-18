@@ -6,6 +6,9 @@ FROM TP_BASEPOWERAPPS P
 LEFT JOIN TP_BASESALESFORCE S
     ON P.CODSOLICITUD = S.CODSOLICITUD;
 
+-- RESULTADO
+19037 | 16513 | 2524
+
 
 SELECT
     COUNT(*) AS total_salesforce,
@@ -15,6 +18,8 @@ FROM TP_BASESALESFORCE S
 LEFT JOIN TP_BASEPOWERAPPS P
     ON P.CODSOLICITUD = S.CODSOLICITUD;
 
+-- RESULTADO
+16764 | 16513 | 251
 
 
 SELECT
@@ -29,7 +34,10 @@ FULL OUTER JOIN TP_BASESALESFORCE S
     ON P.CODSOLICITUD = S.CODSOLICITUD
 GROUP BY 1;
 
-
+-- RESULTADO
+Solo Salesforce (las gano usando SF)  - 251
+En ambos - 16513
+Solo PowerApps (las perdería si solo uso SF) - 2524
 
 SELECT
     CASE 
@@ -48,3 +56,8 @@ GROUP BY
         WHEN P.EN_CEF = 1 THEN 'CEF'
         ELSE 'Sin mapa productivo'
     END;
+
+-- RESULTADO
+TC | 11067 | 20
+Sin mapa productivo | 40 | 2500
+CEF | 5406 | 4
