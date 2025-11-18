@@ -1,63 +1,10 @@
-SELECT
-    COUNT(*) AS total_powerapps,
-    SUM(CASE WHEN S.CODSOLICITUD IS NOT NULL THEN 1 ELSE 0 END) AS powerapps_en_salesforce,
-    SUM(CASE WHEN S.CODSOLICITUD IS NULL THEN 1 ELSE 0 END) AS powerapps_no_en_salesforce
-FROM TP_BASEPOWERAPPS P
-LEFT JOIN TP_BASESALESFORCE S
-    ON P.CODSOLICITUD = S.CODSOLICITUD;
-
--- RESULTADO
-19037 | 16513 | 2524
-
-
-SELECT
-    COUNT(*) AS total_salesforce,
-    SUM(CASE WHEN P.CODSOLICITUD IS NOT NULL THEN 1 ELSE 0 END) AS salesforce_en_powerapps,
-    SUM(CASE WHEN P.CODSOLICITUD IS NULL THEN 1 ELSE 0 END) AS salesforce_no_en_powerapps
-FROM TP_BASESALESFORCE S
-LEFT JOIN TP_BASEPOWERAPPS P
-    ON P.CODSOLICITUD = S.CODSOLICITUD;
-
--- RESULTADO
-16764 | 16513 | 251
-
-
-SELECT
-    CASE 
-        WHEN P.CODSOLICITUD IS NOT NULL AND S.CODSOLICITUD IS NOT NULL THEN 'En ambos'
-        WHEN P.CODSOLICITUD IS NOT NULL AND S.CODSOLICITUD IS NULL THEN 'Solo PowerApps (las perdería si solo uso SF)'
-        WHEN P.CODSOLICITUD IS NULL AND S.CODSOLICITUD IS NOT NULL THEN 'Solo Salesforce (las gano usando SF)'
-    END AS grupo,
-    COUNT(*) AS cant_solicitudes
-FROM TP_BASEPOWERAPPS P
-FULL OUTER JOIN TP_BASESALESFORCE S
-    ON P.CODSOLICITUD = S.CODSOLICITUD
-GROUP BY 1;
-
--- RESULTADO
-Solo Salesforce (las gano usando SF)  - 251
-En ambos - 16513
-Solo PowerApps (las perdería si solo uso SF) - 2524
-
-SELECT
-    CASE 
-        WHEN P.EN_TC = 1 THEN 'TC'
-        WHEN P.EN_CEF = 1 THEN 'CEF'
-        ELSE 'Sin mapa productivo'
-    END AS tipo_solicitud_powerapps,
-    SUM(CASE WHEN S.CODSOLICITUD IS NOT NULL THEN 1 ELSE 0 END) AS en_salesforce,
-    SUM(CASE WHEN S.CODSOLICITUD IS NULL THEN 1 ELSE 0 END) AS no_en_salesforce
-FROM TP_BASEPOWERAPPS P
-LEFT JOIN TP_BASESALESFORCE S
-    ON P.CODSOLICITUD = S.CODSOLICITUD
-GROUP BY 
-    CASE 
-        WHEN P.EN_TC = 1 THEN 'TC'
-        WHEN P.EN_CEF = 1 THEN 'CEF'
-        ELSE 'Sin mapa productivo'
-    END;
-
--- RESULTADO
-TC | 11067 | 20
-Sin mapa productivo | 40 | 2500
-CEF | 5406 | 4
+CREATE TABLE CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_BASEOPORTUNIDADES
+LOCATION 'abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/TABLAS_DELTA/BASE'
+AS
+SELECT * FROM read_files(
+  'abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/BASE/BaseInicial.csv',
+  format => 'csv',
+  header => true,
+  delimiter => ',',
+  mode => 'FAILFAST'
+);
