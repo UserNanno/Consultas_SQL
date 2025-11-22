@@ -1,3 +1,5 @@
+MODEL_NAME = "databricks-meta-llama-3-70b-instruct"  # ajusta si hace falta
+
 SYSTEM_PROMPT = """
 Eres un sistema de clasificación de intenciones para un banco.
 
@@ -24,32 +26,3 @@ Formato de salida (JSON):
   "confianza": 0.x
 }
 """
-
-
-
-
-def clasificar_pregunta(mensaje: str) -> dict:
-    if not mensaje:
-        return {
-            "intencion": None,
-            "tema": None,
-            "es_relacionado_al_trabajo": None,
-            "confianza": 0.0,
-        }
-
-    completion = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": mensaje},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.0,
-    )
-
-    contenido = completion.choices[0].message.content
-    return json.loads(contenido)
-
-
-
-clasificar_pregunta("Quiero saber si el cliente tiene deuda en su tarjeta VISA")
