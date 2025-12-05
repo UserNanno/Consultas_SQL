@@ -1,13 +1,19 @@
-Tengo este dataframe
-tp_powerapp_clean.head(2)
-dodne tengo estas columnas (CODSOLICITUD	FECASIGNACION	PRODUCTO	RESULTADOANALISTA	CORREO	MOTIVORESULTADOANALISTA	CODMES	CREATED	MOTIVOMALADERIVACION	SUBMOTIVOMALADERIVACION	FECCREACION	HORACREACION	FECHORACREACION)
+from pyspark.sql import functions as F
 
-También tengo este otro dataframe
-df_organico.head(2)
-donde tengo estas columnas (CODMES	FECINGRESO MATORGANICO	NOMBRECOMPLETO	AREATRIBUCOE	SERVICIOTRIBUCOE	UNIDADORGANIZATIVA	CORREO	AGENCIA	FUNCION	MATSUPERIOR)
-Acá en el campo Correo hay valores "-" deberiamos quitarlos.
+def parse_fecha_hora_esp_col(col):
+    # col: objeto Column de PySpark (F.col("nombre_columna"))
+    
+    # Pasamos a minúsculas y limpiamos espacios extra
+    s = F.lower(F.trim(col))
+    s = F.regexp_replace(s, r'\s+', ' ')  # colapsar espacios múltiples
 
-Paso 1: Lo que necesito primero es buscar todos los crreos que aparecen en tp_powerapp_clean y en qué mes
-Paso 2: Luego debo verificar que todos esos correos los tenga en df_organico en el mismo mes que se encontré en tp_powerapp_clean
-Paso 3: Si existe coincidencia vamos a crear un dataframe nuevo donde tengamos un solo registro por CODMES, MATORGANICO y CORREO (tomaremos el correo mas actual por FECINGRESO en ese CODMES). Acá verificar que por ejemplo si bien hay dos matrículas distintas, puede tener un mismo correo y viceverwsa. Quedarse con el de FECINGRESO mas actual para ese CODMES
-Paso 3: Luego que se haya garantizado que ese nuevo dataframe tenga valores unicos por matrícual y correo en el CODMES se debe agregar a tp_powerapp_clean el MATORGANICO y renombrarlo como MATANALISTA
+    # Normalizar variantes de a. m. / p. m. a AM / PM
+    # (?i) = case-insensitive
+    s = F.regexp_replace(s, r'(?i)a\.?\s*m\.?', 'AM')
+    s = F.regexp_replace(s, r'(?i)p\.?\s*m\.?', 'PM')
+
+    # Parsear al timestamp con día/mes/año y hora 12h
+    # dd/MM/yyyy -> día/mes/año
+    # hh:mm      -> hora 12h
+    # a          -> AM/PM
+    return F.to_timestamp(s, 'dd/MM/yyyy hh:mm a')
