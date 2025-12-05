@@ -1,9 +1,13 @@
-from pyspark.sql import functions as F
+def quitar_tildes(col):
+    return (F.regexp_replace(F.regexp_replace(F.regexp_replace(F.regexp_replace(F.regexp_replace(col,
+        "[ÁÀÂÄáàâä]", "A"),"[ÉÈÊËéèêë]", "E"),"[ÍÌÎÏíìîï]", "I"),"[ÓÒÔÖóòôö]", "O"),"[ÚÙÛÜúùûü]", "U"))
+
+
+
 
 df_salesforce = (
     df_salesforce
-        .withColumn("ESTADOSOLICITUD", F.upper(F.col("ESTADOSOLICITUD")))
-        .withColumn("NBRPASO", F.upper(F.col("NBRPASO")))
-        .withColumn("NBRANALISTA", F.upper(F.col("NBRANALISTA")))
-        .withColumn("PROCESO", F.upper(F.col("PROCESO")))
+        .withColumn("NBRPASO", quitar_tildes("NBRPASO"))
+        .withColumn("NBRANALISTA", quitar_tildes("NBRANALISTA"))
+        .withColumn("PROCESO", quitar_tildes("PROCESO"))
 )
