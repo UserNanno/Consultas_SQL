@@ -1,6 +1,1 @@
-df_repetidas = (
-    df_salesforce_estados
-        .groupBy("CODSOLICITUD")
-        .count()
-        .withColumnRenamed("count", "REPETICIONES")
-)
+display(df_salesforce_estados.filter(F.col("CODSOLICITUD") = "O0015013080")
