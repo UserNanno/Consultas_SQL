@@ -1,23 +1,26 @@
-from pyspark.sql.window import Window
+# 1️⃣ Cantidad de registros en el DF original
+count_original = df_salesforce_estados.count()
+print("📌 Registros en df_salesforce_estados (original):", count_original)
 
-w = Window.partitionBy("CODSOLICITUD").orderBy(F.col("FECHORINICIOEVALUACION").desc())
+# 2️⃣ Cantidad de registros únicos (solo el último por solicitud)
+count_unicos = df_salesforce_estados_unicos.count()
+print("📌 Registros en df_salesforce_estados_unicos:", count_unicos)
 
-df_salesforce_estados_rn = (
+# 3️⃣ Cantidad de registros descartados (los repetidos)
+count_descartados = df_salesforce_estados_descartados.count()
+print("📌 Registros en df_salesforce_estados_descartados:", count_descartados)
+
+
+# 4️⃣ Cantidad de repetidos por CODSOLICITUD
+df_repetidos_count = (
     df_salesforce_estados
-        .withColumn("rn", F.row_number().over(w))
+        .groupBy("CODSOLICITUD")
+        .count()
+        .filter(F.col("count") > 1)
 )
 
+count_codsolicitud_repetidos = df_repetidos_count.count()
 
-df_salesforce_estados_unicos = (
-    df_salesforce_estados_rn
-        .filter(F.col("rn") == 1)
-        .drop("rn")
-)
-
-
-
-df_salesforce_estados_descartados = (
-    df_salesforce_estados_rn
-        .filter(F.col("rn") > 1)
-        .drop("rn")
-)
+print("📌 Cantidad de CODSOLICITUD con repeticiones:", count_codsolicitud_repetidos)
+print("📌 Ejemplo de valores repetidos:")
+df_repetidos_count.show(10, truncate=False)
