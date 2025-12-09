@@ -1,129 +1,114 @@
-def parse_fecha_hora_esp(series):
-    """
-    Convierte strings como '01/10/2025 08:42 a. m.' o '01/10/2025 3:25 p. m.'
-    en datetime de 24 horas, respetando el día/mes correcto (formato español).
-    """
-    def clean_and_parse(value):
-        if pd.isna(value):
-            return pd.NaT
-        s = str(value).strip().lower()
-        s = re.sub(r'\s+', ' ', s)
-        # Limpieza
-        s = (s.replace('a. m.', 'AM')
-               .replace('p. m.', 'PM')
-               .replace('a. m', 'AM')
-               .replace('p. m', 'PM')
-               .replace('a m', 'AM')
-               .replace('p m', 'PM')
-               .strip())
-        try:
-            # formato explícito día/mes/año con 12h
-            return pd.to_datetime(s, format="%d/%m/%Y %I:%M %p", errors="coerce", dayfirst=True)
-        except Exception:
-            return pd.to_datetime(s, errors="coerce", dayfirst=True)
-    return series.apply(clean_and_parse)
+from pyspark.sql.types import (
+    StructType, StructField, StringType, IntegerType, DecimalType, DateType
+)
+from pyspark.sql.functions import col, upper, lpad, to_date
+from pyspark.sql import functions as F
 
 
-import pandas as pd
-from datetime import datetime
-from unidecode import unidecode
-import re
-import glob
+path_salesfoce_estados = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/SALESFORCE/INFORME_ESTADO/INFORME_ESTADO_*.csv"
 
-files = glob.glob("INPUT/SALESFORCE/INFORME_ESTADO_*.csv")
+df_salesforce_raw = (
+    spark.read
+        .format("csv")
+        .option("header", "true")
+        .option("encoding", "ISO-8859-1")
+        .load(path_salesfoce_estados)
+)
 
-df_salesforce = pd.concat([
-    pd.read_csv(
-        f,
-        encoding="latin1",
-        usecols=[
-            "Nombre del registro", "Estado", "Fecha de inicio del paso",
-            "Fecha de finalización del paso", "Paso: Nombre",
-            "Último actor: Nombre completo", "Proceso de aprobación: Nombre"
-        ]
-    ) for f in files
-], ignore_index=True)
+df_salesforce_estados = (
+    df_salesforce_raw
+        .select(
+            F.col("Fecha de inicio del paso").alias("FECINICIOEVALUACION"),
+            F.col("Fecha de finalización del paso").alias("FECFINEVALUACION"),
+            F.col("Nombre del registro").alias("CODSOLICITUD"),
+            F.col("Estado").alias("ESTADOSOLICITUD"),
+            F.col("Paso: Nombre").alias("NBRPASO"),
+            F.col("Último actor: Nombre completo").alias("NBRULTACTOR"),
+            F.col("Último actor del paso: Nombre completo").alias("NBRULTACTORPASO"),
+            F.col("Proceso de aprobación: Nombre").alias("PROCESO"),
+        )
+)
 
-df_salesforce = df_salesforce.rename(columns={
-    "Nombre del registro": "CODSOLICITUD",
-    "Estado": "ESTADOSOLICITUD",
-    "Fecha de inicio del paso": "FECINICIOEVALUACION",
-    "Fecha de finalización del paso": "FECFINEVALUACION",
-    "Paso: Nombre": "NBRPASO",
-    "Último actor: Nombre completo": "NBRANALISTA",
-    "Proceso de aprobación: Nombre": "PROCESO"
-})
-
-
-
-
-df_salesforce.loc[:, "ESTADOSOLICITUD"] = df_salesforce["ESTADOSOLICITUD"].str.upper()
-df_salesforce.loc[:, "NBRPASO"] = df_salesforce["NBRPASO"].str.upper()
-df_salesforce.loc[:, "NBRANALISTA"] = df_salesforce["NBRANALISTA"].str.upper()
-df_salesforce.loc[:, "PROCESO"] = df_salesforce["PROCESO"].str.upper()
-
-
-
-df_salesforce["NBRPASO"] = df_salesforce["NBRPASO"].apply(lambda x: unidecode(str(x)))
-df_salesforce["NBRANALISTA"] = df_salesforce["NBRANALISTA"].apply(lambda x: unidecode(str(x)))
-df_salesforce["PROCESO"] = df_salesforce["PROCESO"].apply(lambda x: unidecode(str(x)))
-
-
-
-df_salesforce["FECHORINICIOEVALUACION"] = parse_fecha_hora_esp(df_salesforce["FECINICIOEVALUACION"])
-df_salesforce["FECHORFINEVALUACION"] = parse_fecha_hora_esp(df_salesforce["FECFINEVALUACION"])
-
-df_salesforce["FECINICIOEVALUACION"] = df_salesforce["FECHORINICIOEVALUACION"].dt.date
-df_salesforce["FECFINEVALUACION"] = df_salesforce["FECHORFINEVALUACION"].dt.date
-
-df_salesforce["HORINICIOEVALUACION"] = df_salesforce["FECHORINICIOEVALUACION"].dt.time
-df_salesforce["HORFINEVALUACION"] = df_salesforce["FECHORFINEVALUACION"].dt.time
-
-
-df_salesforce["CODMESEVALUACION"] = df_salesforce["FECINICIOEVALUACION"].apply(
-    lambda x: f"{x.year}{x.month:02}" if pd.notna(x) else None
+df_salesforce_estados = (
+    df_salesforce_estados
+        .withColumn("ESTADOSOLICITUD", F.upper(F.col("ESTADOSOLICITUD")))
+        .withColumn("NBRPASO", F.upper(F.col("NBRPASO")))
+        .withColumn("NBRULTACTOR", F.upper(F.col("NBRULTACTOR")))
+        .withColumn("NBRULTACTORPASO", F.upper(F.col("NBRULTACTORPASO")))
+        .withColumn("PROCESO", F.upper(F.col("PROCESO")))
 )
 
 
-df_salesforce = df_salesforce.sort_values(
-    by=["CODSOLICITUD", "FECHORINICIOEVALUACION"],
-    ascending=[True, True]  # orden ascendente para que el último sea el más reciente
+def quitar_tildes(col):
+    return (F.regexp_replace(F.regexp_replace(F.regexp_replace(F.regexp_replace(F.regexp_replace(col,
+        "[ÁÀÂÄáàâä]", "A"),"[ÉÈÊËéèêë]", "E"),"[ÍÌÎÏíìîï]", "I"),"[ÓÒÔÖóòôö]", "O"),"[ÚÙÛÜúùûü]", "U"))
+
+
+
+df_salesforce_estados = (
+    df_salesforce_estados
+        .withColumn("NBRPASO", quitar_tildes("NBRPASO"))
+        .withColumn("NBRULTACTOR", quitar_tildes("NBRULTACTOR"))
+        .withColumn("NBRULTACTORPASO", quitar_tildes("NBRULTACTORPASO"))
+        .withColumn("PROCESO", quitar_tildes("PROCESO"))
 )
 
 
-df_salesforce = df_salesforce.drop_duplicates(
-    subset=["CODSOLICITUD"], 
-    keep="last"
+
+def parse_fecha_hora_esp_col(col):
+    s = F.col(col).cast("string")
+    s = F.regexp_replace(s, u'\u00A0', ' ')
+    s = F.regexp_replace(s, u'\u202F', ' ')
+    s = F.lower(F.trim(s))
+    
+    s = F.regexp_replace(s, r'\s+', ' ')
+    
+    # 2) Normalizar "a. m." / "p. m." -> AM / PM
+    s = F.regexp_replace(s, r'(?i)a\W*m\W*', 'AM')
+    s = F.regexp_replace(s, r'(?i)p\W*m\W*', 'PM')
+    
+    return F.to_timestamp(s, 'dd/MM/yyyy hh:mm a')
+
+
+
+df_salesforce_estados = (
+    df_salesforce_estados
+        .withColumn(
+            "FECHORINICIOEVALUACION",
+            parse_fecha_hora_esp_col("FECINICIOEVALUACION")
+        )
+        .withColumn(
+            "FECHORFINEVALUACION",
+            parse_fecha_hora_esp_col("FECFINEVALUACION")
+        )
 )
 
 
-df_salesforce['CODMESEVALUACION'] = df_salesforce['CODMESEVALUACION'].astype(int)
-df_organico['CODMES'] = df_organico['CODMES'].astype(int)
 
+df_salesforce_estados = (
+    df_salesforce_estados
+        # EXTRAER FECHA
+        .withColumn("FECINICIOEVALUACION", F.to_date("FECHORINICIOEVALUACION"))
+        .withColumn("FECFINEVALUACION", F.to_date("FECHORFINEVALUACION"))
 
-# Diccionario con los cambios deseados
-analistas_map = {
-    'LESLY ASPIROS MEDINA': 'ASPIROS MEDINA LESLY FIORELA',
-    'GUIDO FERNANDEZ PORROA': 'FERNANDEZ PORROA GUIDO DAVID',
-    'PIERO VELARDE HUBY': 'VELARDE HUBY PIERO ANGELO',
-    'MARVIN VIRHUEZ BLANCAS': 'VIRHUEZ BLANCAS MARVIN ANTONIO',
-    'KARINA MONTALVA DE FALLA': 'MONTALVA DE FALLA KARINA PAOLA',
-    'RICARDO RIVERA DELGADO': 'RIVERA DELGADO RICARDO ANTONIO',
-    'PILAR DEL AGUILA VALDEZ': 'DEL AGUILA VALDEZ PILAR MARLENE',
-    'SOLANGE LOPEZ ALIAGA': 'LOPEZ ALIAGA SOLANGE XIMENA'
-}
+        # EXTRAER HORA (en string HH:mm:ss)
+        .withColumn("HORINICIOEVALUACION", F.date_format("FECHORINICIOEVALUACION", "HH:mm:ss"))
+        .withColumn("HORFINEVALUACION", F.date_format("FECHORFINEVALUACION", "HH:mm:ss"))
 
-# Aplicar el reemplazo en la columna
-df_salesforce['NBRANALISTA'] = df_salesforce['NBRANALISTA'].replace(analistas_map)
-
-
-
-import re
-
-# Limpieza de nombres
-df_salesforce['NBRANALISTA_CLEAN'] = df_salesforce['NBRANALISTA'].str.upper().apply(
-    lambda x: re.sub(r'\(CESADO\)', '', str(x)).strip()
+        # CODMESEVALUACION = YYYYMM
+        .withColumn("CODMESEVALUACION",
+                    F.date_format("FECINICIOEVALUACION", "yyyyMM"))
 )
-df_organico['NOMBRECOMPLETO_CLEAN'] = df_organico['NOMBRECOMPLETO'].str.upper().apply(
-    lambda x: re.sub(r'\(CESADO\)', '', str(x)).strip()
+
+
+
+df_repetidas = (
+    df_salesforce_estados
+        .groupBy("CODSOLICITUD")
+        .count()
+        .withColumnRenamed("count", "REPETICIONES")
 )
+
+
+df_repetidas_solo = df_repetidas.filter(F.col("REPETICIONES") > 1)
+
