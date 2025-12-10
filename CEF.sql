@@ -1,5 +1,12 @@
-df.write \
-  .format("delta") \
-  .mode("overwrite") \
-  .option("overwriteSchema", "true") \
-  .saveAsTable("CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.HM_LEADS_BDI")
+df_final = df_salesforce_enriq.select(
+    "CODMESEVALUACION",
+    "CODSOLICITUD",
+    "NBRULTACTOR",
+    "PROCESO",
+    "NBRPASO",
+    "ESTADOSOLICITUD",
+    "FECHORINICIOEVALUACION",
+    "FECHORFINEVALUACION",
+    "MATORGANICO",
+    "MATSUPERIOR"
+)
