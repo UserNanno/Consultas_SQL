@@ -1,198 +1,162 @@
-from pyspark.sql.types import (
-    StructType, StructField, StringType, IntegerType, DecimalType, DateType
-)
-from pyspark.sql.functions import col, upper, lpad, to_date
+count_sf_original = df_salesforce_estados.count()
+print("Registros originales SF:", count_sf_original)
+
+
+count_sf_enriq = df_salesforce_enriq.count()
+print("Registros enriquecidos:", count_sf_enriq)
+.
+    .
+
+
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
+# ============================================
+# 1) Asegurar que los meses tengan mismo tipo
+# ============================================
+# Puede ser INT o STRING, lo importante es que ambos sean IGUALES.
+# Aquí los dejo como STRING.
+df_organico = df_organico.withColumn("CODMES", F.col("CODMES").cast("string"))
+df_salesforce_estados = df_salesforce_estados.withColumn("CODMESEVALUACION", F.col("CODMESEVALUACION").cast("string"))
 
-import re
-from functools import reduce
-from pyspark.sql import DataFrame
-
-base_dir = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/ORGANICO/"
-entries = dbutils.fs.ls(base_dir)
-files = [e.path for e in entries if e.name.startswith("1n_Activos_2025") and e.name.endswith(".xlsx")]
-assert files, "No se encontraron archivos 1n_Activos_2025*.xlsx"
-
-excel_options = {
-    "header": "true",
-    "inferSchema": "true",
-    "treatEmptyValuesAsNulls": "true",
-    "timestampFormat": "yyyy-MM-dd HH:mm:ss",
-    # "dataAddress": "'Hoja1'!A1",  # Si el header no está en la fila 1
-}
-
-dfs = []
-for path in files:
-    reader = spark.read.format("com.crealytics.spark.excel")
-    for k, v in excel_options.items():
-        reader = reader.option(k, v)
-    df = reader.load(path)
-
-    for c in df.columns:
-        new_name = re.sub(r"\s+", " ", c.strip())
-        if new_name != c:
-            df = df.withColumnRenamed(c, new_name)
-
-    # 2) Elimina columnas sin nombre (_c0, _c1, ..., _c29)
-    cols_clean = [c for c in df.columns if not re.match(r"^_c\d+$", c)]
-    df = df.select(*cols_clean)
-
-    dfs.append(df)
-
-# 3) Une por nombre de columnas
-from pyspark.sql import functions as F
-df_organico_raw = reduce(lambda a, b: a.unionByName(b, allowMissingColumns=True), dfs)
-
-def quitar_tildes(col):
-    return (F.regexp_replace(F.regexp_replace(F.regexp_replace(F.regexp_replace(F.regexp_replace(col,
-        "[ÁÀÂÄáàâä]", "A"),"[ÉÈÊËéèêë]", "E"),"[ÍÌÎÏíìîï]", "I"),"[ÓÒÔÖóòôö]", "O"),"[ÚÙÛÜúùûü]", "U"))
-
-
-
-df_organico = (
-    df_organico_raw
-        .select(
-            F.col("CODMES").alias("CODMES"),
-            F.col("Matrícula").alias("MATORGANICO"),
-            F.col("Nombre Completo").alias("NOMBRECOMPLETO"),
-            F.col("Correo electronico").alias("CORREO"),
-            F.col("Fecha Ingreso").alias("FECINGRESO"),
-            F.col("Matrícula Superior").alias("MATSUPERIOR"),
-        )
+# ============================================
+# 2) Tokenizar nombres en ORGÁNICO
+# ============================================
+# Usamos NOMBRECOMPLETO como tú pediste.
+# TOKENS_NOMBRE_ORG será un array con cada palabra del nombre.
+df_org_nombres = (
+    df_organico
+      .withColumn(
+          "TOKENS_NOMBRE_ORG",
+          F.array_distinct(F.split(F.col("NOMBRECOMPLETO"), r"\s+"))
+      )
+      .withColumn("N_TOK_ORG", F.size("TOKENS_NOMBRE_ORG"))
 )
 
+# ============================================
+# 3) Tokenizar nombres en SALESFORCE
+# ============================================
+# Elige la columna que mejor represente a la persona.
+COL_NOMBRE_SF = "NBRULTACTOR"  # cambia a "NBRULTACTORPASO" si prefieres
 
-
-def norm_txt_spark(col):
-    # upper + quitar tildes + trim
-    return F.trim(quitar_tildes(F.upper(F.col(col))))
-
-
-
-cols_norm = ["MATORGANICO", "NOMBRECOMPLETO", "MATSUPERIOR"]
-
-for c in cols_norm:
-    df_organico = df_organico.withColumn(c, norm_txt_spark(c))
-
-
-
-df_organico = df_organico.withColumn(
-    "MATSUPERIOR",
-    F.regexp_replace(F.col("MATSUPERIOR"), r'^0(?=[A-Z]\d{5})', '')
-)
-
-
-df_organico = df_organico.withColumn(
-    "FECINGRESO",
-    F.to_date("FECINGRESO")  # o con formato explícito si hace falta
-)
-
-
-
-def limpiar_cesado(col):
-    return F.trim(F.regexp_replace(F.col(col), r'\(CESADO\)', ''))
-
-df_organico = df_organico.withColumn(
-    "NOMBRECOMPLETO_CLEAN",
-    limpiar_cesado("NOMBRECOMPLETO")
-)
-
-
-
-
-
-path_salesfoce_estados = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/SALESFORCE/INFORME_ESTADO/INFORME_ESTADO_*.csv"
-
-
-
-df_salesforce_raw = (
-    spark.read
-        .format("csv")
-        .option("header", "true")
-        .option("encoding", "ISO-8859-1")
-        .load(path_salesfoce_estados)
-)
-
-
-df_salesforce_estados = (
-    df_salesforce_raw
-        .select(
-            F.col("Fecha de inicio del paso").alias("FECINICIOEVALUACION"),
-            F.col("Fecha de finalización del paso").alias("FECFINEVALUACION"),
-            F.col("Nombre del registro").alias("CODSOLICITUD"),
-            F.col("Estado").alias("ESTADOSOLICITUD"),
-            F.col("Paso: Nombre").alias("NBRPASO"),
-            F.col("Último actor: Nombre completo").alias("NBRULTACTOR"),
-            F.col("Último actor del paso: Nombre completo").alias("NBRULTACTORPASO"),
-            F.col("Proceso de aprobación: Nombre").alias("PROCESO"),
-        )
-)
-
-
-df_salesforce_estados = (
+df_sf_nombres = (
     df_salesforce_estados
-        .withColumn("ESTADOSOLICITUD", F.upper(F.col("ESTADOSOLICITUD")))
-        .withColumn("NBRPASO", F.upper(F.col("NBRPASO")))
-        .withColumn("NBRULTACTOR", F.upper(F.col("NBRULTACTOR")))
-        .withColumn("NBRULTACTORPASO", F.upper(F.col("NBRULTACTORPASO")))
-        .withColumn("PROCESO", F.upper(F.col("PROCESO")))
+      .withColumn(
+          "TOKENS_NOMBRE_SF",
+          F.array_distinct(F.split(F.col(COL_NOMBRE_SF), r"\s+"))
+      )
+      .withColumn("N_TOK_SF", F.size("TOKENS_NOMBRE_SF"))
 )
 
+# ============================================
+# 4) Explode de tokens (una fila por token)
+# ============================================
+df_org_tokens = (
+    df_org_nombres
+      .select(
+          "CODMES",
+          "MATORGANICO",
+          "NOMBRECOMPLETO",
+          "TOKENS_NOMBRE_ORG",
+          "N_TOK_ORG"
+      )
+      .withColumn("TOKEN", F.explode("TOKENS_NOMBRE_ORG"))
+)
 
-df_salesforce_estados = (
+df_sf_tokens = (
+    df_sf_nombres
+      .select(
+          "CODMESEVALUACION",
+          "CODSOLICITUD",
+          COL_NOMBRE_SF,
+          "TOKENS_NOMBRE_SF",
+          "N_TOK_SF"
+      )
+      .withColumn("TOKEN", F.explode("TOKENS_NOMBRE_SF"))
+)
+
+# ============================================
+# 5) Join por MES + TOKEN
+# ============================================
+# Cada fila resultante es "este token del nombre SF coincide con este token del
+# nombre ORG para el mismo mes".
+df_join_tokens = (
+    df_sf_tokens.alias("sf")
+      .join(
+          df_org_tokens.alias("org"),
+          (F.col("sf.CODMESEVALUACION") == F.col("org.CODMES")) &
+          (F.col("sf.TOKEN") == F.col("org.TOKEN")),
+          "inner"
+      )
+)
+
+# ============================================
+# 6) Score de similitud por solicitud + matrícula
+# ============================================
+# Agrupamos por solicitud, nombre SF y MATORGANICO, y contamos cuántos tokens
+# coinciden.
+match_cols = ["CODMESEVALUACION", "CODSOLICITUD", COL_NOMBRE_SF, "MATORGANICO"]
+
+df_match_scores = (
+    df_join_tokens
+      .groupBy(match_cols)
+      .agg(
+          F.countDistinct("sf.TOKEN").alias("TOKENS_MATCH"),
+          F.first("sf.N_TOK_SF").alias("N_TOK_SF"),
+          F.first("org.N_TOK_ORG").alias("N_TOK_ORG"),
+      )
+      .withColumn("RATIO_SF", F.col("TOKENS_MATCH") / F.col("N_TOK_SF"))
+      .withColumn("RATIO_ORG", F.col("TOKENS_MATCH") / F.col("N_TOK_ORG"))
+)
+
+# ============================================
+# 7) Tolerancia mínima:
+#    - al menos 3 tokens que coincidan
+#    - al menos 60% del nombre de Salesforce coincide
+# ============================================
+df_match_scores_filtrado = (
+    df_match_scores
+      .filter(
+          (F.col("TOKENS_MATCH") >= 3) &
+          (F.col("RATIO_SF") >= 0.60)
+      )
+)
+
+# ============================================
+# 8) Elegir el MATORGANICO "más exacto" por solicitud y mes
+# ============================================
+# Puede haber homónimos: mismo CODMESEVALUACION, mismo nombre SF,
+# pero varias matrículas. Aquí nos quedamos con la coincidencia más fuerte.
+w = Window.partitionBy("CODMESEVALUACION", "CODSOLICITUD").orderBy(
+    F.col("TOKENS_MATCH").desc(),  # primero, más tokens en común
+    F.col("RATIO_SF").desc(),      # luego, mayor % del nombre SF
+    F.col("RATIO_ORG").desc(),     # luego, mayor % del nombre ORG
+    F.col("MATORGANICO").asc()     # desempate estable si todo lo demás empata
+)
+
+df_best_match = (
+    df_match_scores_filtrado
+      .withColumn("rn", F.row_number().over(w))
+      .filter(F.col("rn") == 1)
+      .drop("rn")
+)
+
+# df_best_match tiene:
+# - 1 fila por CODMESEVALUACION + CODSOLICITUD
+# - El MATORGANICO que mejor matchea por nombres en ese mes
+
+# ============================================
+# 9) Pegar MATORGANICO al df_salesforce_estados
+# ============================================
+# Esto se hace a nivel de solicitud (CODSOLICITUD) y mes: todas las filas
+# repetidas (por diferente hora, etc.) heredan el mismo MATORGANICO.
+df_salesforce_enriq = (
     df_salesforce_estados
-        .withColumn("NBRPASO", quitar_tildes("NBRPASO"))
-        .withColumn("NBRULTACTOR", quitar_tildes("NBRULTACTOR"))
-        .withColumn("NBRULTACTORPASO", quitar_tildes("NBRULTACTORPASO"))
-        .withColumn("PROCESO", quitar_tildes("PROCESO"))
+      .join(
+          df_best_match.select("CODMESEVALUACION", "CODSOLICITUD", "MATORGANICO"),
+          on=["CODMESEVALUACION", "CODSOLICITUD"],
+          how="left"
+      )
 )
 
-
-
-def parse_fecha_hora_esp_col(col):
-    s = F.col(col).cast("string")
-    s = F.regexp_replace(s, u'\u00A0', ' ')
-    s = F.regexp_replace(s, u'\u202F', ' ')
-    s = F.lower(F.trim(s))
-    
-    s = F.regexp_replace(s, r'\s+', ' ')
-    
-    # 2) Normalizar "a. m." / "p. m." -> AM / PM
-    s = F.regexp_replace(s, r'(?i)a\W*m\W*', 'AM')
-    s = F.regexp_replace(s, r'(?i)p\W*m\W*', 'PM')
-    
-    return F.to_timestamp(s, 'dd/MM/yyyy hh:mm a')
-
-
-
-df_salesforce_estados = (
-    df_salesforce_estados
-        .withColumn(
-            "FECHORINICIOEVALUACION",
-            parse_fecha_hora_esp_col("FECINICIOEVALUACION")
-        )
-        .withColumn(
-            "FECHORFINEVALUACION",
-            parse_fecha_hora_esp_col("FECFINEVALUACION")
-        )
-)
-
-
-
-
-df_salesforce_estados = (
-    df_salesforce_estados
-        # EXTRAER FECHA
-        .withColumn("FECINICIOEVALUACION", F.to_date("FECHORINICIOEVALUACION"))
-        .withColumn("FECFINEVALUACION", F.to_date("FECHORFINEVALUACION"))
-
-        # EXTRAER HORA (en string HH:mm:ss)
-        .withColumn("HORINICIOEVALUACION", F.date_format("FECHORINICIOEVALUACION", "HH:mm:ss"))
-        .withColumn("HORFINEVALUACION", F.date_format("FECHORFINEVALUACION", "HH:mm:ss"))
-
-        # CODMESEVALUACION = YYYYMM
-        .withColumn("CODMESEVALUACION",
-                    F.date_format("FECINICIOEVALUACION", "yyyyMM"))
-)
+# df_salesforce_enriq es el dataframe final con MATORGANICO pegado
