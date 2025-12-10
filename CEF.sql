@@ -1,73 +1,72 @@
-import re
-
-# Limpieza de nombres
-df_salesforce['NBRANALISTA_CLEAN'] = df_salesforce['NBRANALISTA'].str.upper().apply(
-    lambda x: re.sub(r'\(CESADO\)', '', str(x)).strip()
-)
-df_organico['NOMBRECOMPLETO_CLEAN'] = df_organico['NOMBRECOMPLETO'].str.upper().apply(
-    lambda x: re.sub(r'\(CESADO\)', '', str(x)).strip()
-)
-
-
-# Crear llave solo con el nombre ordenado (sin mes)
-df_salesforce['KEY_NAME'] = df_salesforce['NBRANALISTA_CLEAN'].apply(
-    lambda x: tuple(sorted(x.split()))
-)
-df_organico['KEY_NAME'] = df_organico['NOMBRECOMPLETO_CLEAN'].apply(
-    lambda x: tuple(sorted(x.split()))
+df_organico_raw = (
+    spark.read
+        .format("com.crealytics.spark.excel")
+        .option("header", "true")
+        .option("inferSchema", "true")
+        .load("abfss://.../1n_Activos_2025*.xlsx")  # tu ruta con wildcard
 )
 
 
 
 
+from pyspark.sql import functions as F
 
-
-
-PATH_ORGANICO = "INPUT/ORGANICO/"
-FILES = glob.glob(os.path.join(PATH_ORGANICO, "1n_Activos_2025*.xlsx"))
-
-df_organico = pd.concat(
-    (pd.read_excel(f, sheet_name=0) for f in FILES),
-    ignore_index=True
+df_organico = (
+    df_organico_raw
+        .select(
+            F.col("CODMES").alias("CODMES"),
+            F.col("Matrícula").alias("MATORGANICO"),
+            F.col("Nombre Completo").alias("NOMBRECOMPLETO"),
+            F.col("Correo electronico").alias("CORREO"),
+            F.col("Fecha Ingreso").alias("FECINGRESO"),
+            F.col("Matrícula Superior").alias("MATSUPERIOR"),
+        )
 )
 
 
-cols_selected = [
-    'CODMES', 
-    'Matrícula',
-    'Nombre Completo',
-    'Correo electronico',
-    'Fecha Ingreso',
-    'Matrícula Superior'
-]
+def norm_txt_spark(col):
+    # upper + quitar tildes + trim
+    return F.trim(quitar_tildes(F.upper(F.col(col))))
 
-df_organico = df_organico[cols_selected].rename(columns={
-    'CODMES': 'CODMES',
-    'Matrícula': 'MATORGANICO',
-    'Nombre Completo': 'NOMBRECOMPLETO',
-    'Correo electronico': 'CORREO',
-    'Fecha Ingreso': 'FECINGRESO',
-    'Matrícula Superior': 'MATSUPERIOR'
-})
+cols_norm = ["MATORGANICO", "NOMBRECOMPLETO", "MATSUPERIOR"]
+
+for c in cols_norm:
+    df_organico = df_organico.withColumn(c, norm_txt_spark(c))
 
 
-# normaliza - tildes -> strip -> upper
-cols_norm = [
-    'MATORGANICO', 'NOMBRECOMPLETO', 'MATSUPERIOR'
-]
-
-for col in cols_norm:
-    df_organico.loc[:, col] = df_organico[col].apply(norm_txt)
 
 
-# Quitar 0 inicial
-df_organico.loc[:, "MATSUPERIOR"] = (
-    df_organico["MATSUPERIOR"]
-      .astype(str)
-      .str.replace(r'^0(?=[A-Z]\d{5})', '', regex=True)
+df_organico = df_organico.withColumn(
+    "MATSUPERIOR",
+    F.regexp_replace(F.col("MATSUPERIOR"), r'^0(?=[A-Z]\d{5})', '')
 )
 
 
-df_organico['FECINGRESO'] = pd.to_datetime(df_organico['FECINGRESO'], errors='coerce')
+
+df_organico = df_organico.withColumn(
+    "FECINGRESO",
+    F.to_date("FECINGRESO")  # o con formato explícito si hace falta
+)
 
 
+
+def limpiar_cesado(col):
+    return F.trim(F.regexp_replace(F.col(col), r'\(CESADO\)', ''))
+
+df_organico = df_organico.withColumn(
+    "NOMBRECOMPLETO_CLEAN",
+    limpiar_cesado("NOMBRECOMPLETO")
+)
+
+
+
+
+df_salesforce_estados = df_salesforce_estados.withColumn(
+    "NBRANALISTA_CLEAN",
+    limpiar_cesado("NBRULTACTOR")  # o la columna que corresponda al analista
+)
+
+df_salesforce_estados = df_salesforce_estados.withColumn(
+    "NBRANALISTA_CLEAN",
+    norm_txt_spark("NBRANALISTA_CLEAN")  # upper + quitar tildes + trim
+)
