@@ -1,47 +1,26 @@
-path_salesfoce_productos = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/SALESFORCE/INFORME_PRODUCTO/INFORME_PRODUCTO_*.csv"
+from pyspark.sql import functions as F
 
-
-df_salesforce_raw = (
-    spark.read
-        .format("csv")
-        .option("header", "true")
-        .option("encoding", "ISO-8859-1")
-        .load(path_salesfoce_productos)
-)
-
+# ... tu código de lectura y normalización de textos se mantiene igual ...
 
 df_salesforce_productos = (
-    df_salesforce_raw
-        .select(
-            F.col("Nombre de la oportunidad").alias("CODSOLICITUD"),
-            F.col("Nombre del Producto").alias("NBRPRODUCTO"),
-            F.col("Etapa").alias("ETAPA"),
-            F.col("Analista de crédito").alias("NBRANALISTA"),
-            F.col("Tipo de Acción").alias("TIPACCION"),
-            F.col("Fecha de creación").alias("FECCREACION")
+    df_salesforce_productos
+        # limpiar espacios raros y asegurar string
+        .withColumn("FECCREACION_STR", F.trim(F.col("FECCREACION").cast("string")))
+        # intentar varios formatos posibles
+        .withColumn(
+            "FECCREACION_DATE",
+            F.coalesce(
+                F.to_date("FECCREACION_STR", "dd/MM/yyyy"),   # ej: 31/01/2025
+                F.to_date("FECCREACION_STR", "yyyy-MM-dd"),   # ej: 2025-01-31
+                F.to_date("FECCREACION_STR")                  # fallback por defecto
+            )
         )
+        .withColumn("CODMESCREACION", F.date_format("FECCREACION_DATE", "yyyyMM"))
 )
 
 
 df_salesforce_productos = (
     df_salesforce_productos
-        .withColumn("NBRPRODUCTO", F.upper(F.col("NBRPRODUCTO")))
-        .withColumn("ETAPA", F.upper(F.col("ETAPA")))
-        .withColumn("NBRANALISTA", F.upper(F.col("NBRANALISTA")))
-        .withColumn("TIPACCION", F.upper(F.col("TIPACCION")))
-)
-
-
-
-df_salesforce_productos = (
-    df_salesforce_productos
-        .withColumn("NBRPRODUCTO", quitar_tildes("NBRPRODUCTO"))
-        .withColumn("ETAPA", quitar_tildes("ETAPA"))
-        .withColumn("NBRANALISTA", quitar_tildes("NBRANALISTA"))
-        .withColumn("TIPACCION", quitar_tildes("TIPACCION"))
-)
-
-df_salesforce_productos = (
-    df_salesforce_productos
-        .withColumn("CODMESCREACION", F.date_format("FECCREACION", "yyyyMM"))
+        .withColumn("FECCREACION", F.col("FECCREACION_DATE"))
+        .drop("FECCREACION_STR", "FECCREACION_DATE")
 )
