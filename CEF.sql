@@ -1,3 +1,13 @@
+path_salesfoce_productos = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/SALESFORCE/INFORME_PRODUCTO/INFORME_PRODUCTO_*.csv"
+
+df_salesforce_raw = (
+    spark.read
+        .format("csv")
+        .option("header", "true")
+        .option("encoding", "ISO-8859-1")
+        .load(path_salesfoce_productos)
+)
+
 df_salesforce_productos = (
     df_salesforce_raw
         .select(
@@ -5,9 +15,33 @@ df_salesforce_productos = (
             F.col("Nombre del Producto").alias("NBRPRODUCTO"),
             F.col("Etapa").alias("ETAPA"),
             F.col("Analista de crédito").alias("NBRANALISTA"),
-            F.col("Tipo de Acción").alias("TIPACCION")
+            F.col("Tipo de Acción").alias("TIPACCION"),
+            F.col("Fecha de creación").alias("FECCREACION")
         )
 )
 
+df_salesforce_productos = (
+    df_salesforce_productos
+        .withColumn("NBRPRODUCTO", F.upper(F.col("NBRPRODUCTO")))
+        .withColumn("ETAPA", F.upper(F.col("ETAPA")))
+        .withColumn("NBRANALISTA", F.upper(F.col("NBRANALISTA")))
+        .withColumn("TIPACCION", F.upper(F.col("TIPACCION")))
+        .withColumn("FECCREACION", F.upper(F.col("FECCREACION")))
+)
 
-Tengo este otro df donde quiero hacer lo mismo con NBRANALISTA que haciamos en df_salesforce_estados para buscar su MATORGANICO y colocarlo acá. No habría problema que haya por ejemplo haya 3 nombres en algunos registros donde se repite el segundo nombre con nuestra forma de identificar con la tolerancia, no habria problemas no para aplicar lo que ya tenemos?
+
+df_salesforce_productos = (
+    df_salesforce_productos
+        .withColumn("NBRPRODUCTO", quitar_tildes("NBRPRODUCTO"))
+        .withColumn("ETAPA", quitar_tildes("ETAPA"))
+        .withColumn("NBRANALISTA", quitar_tildes("NBRANALISTA"))
+        .withColumn("TIPACCION", quitar_tildes("TIPACCION"))
+        .withColumn("FECCREACION", quitar_tildes("FECCREACION"))
+)
+
+
+df_salesforce_productos = (
+    df_salesforce_productos
+        .withColumn("CODMESEVALUACION",
+                    F.date_format("FECCREACION", "yyyyMM"))
+)
