@@ -1,13 +1,3 @@
-path_salesfoce_productos = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/SALESFORCE/INFORME_PRODUCTO/INFORME_PRODUCTO_*.csv"
-
-df_salesforce_raw = (
-    spark.read
-        .format("csv")
-        .option("header", "true")
-        .option("encoding", "ISO-8859-1")
-        .load(path_salesfoce_productos)
-)
-
 df_salesforce_productos = (
     df_salesforce_raw
         .select(
@@ -20,15 +10,14 @@ df_salesforce_productos = (
         )
 )
 
+# 1) Normalizar textos (NO tocar FECCREACION aquí)
 df_salesforce_productos = (
     df_salesforce_productos
         .withColumn("NBRPRODUCTO", F.upper(F.col("NBRPRODUCTO")))
         .withColumn("ETAPA", F.upper(F.col("ETAPA")))
         .withColumn("NBRANALISTA", F.upper(F.col("NBRANALISTA")))
         .withColumn("TIPACCION", F.upper(F.col("TIPACCION")))
-        .withColumn("FECCREACION", F.upper(F.col("FECCREACION")))
 )
-
 
 df_salesforce_productos = (
     df_salesforce_productos
@@ -36,12 +25,12 @@ df_salesforce_productos = (
         .withColumn("ETAPA", quitar_tildes("ETAPA"))
         .withColumn("NBRANALISTA", quitar_tildes("NBRANALISTA"))
         .withColumn("TIPACCION", quitar_tildes("TIPACCION"))
-        .withColumn("FECCREACION", quitar_tildes("FECCREACION"))
 )
 
-
+# 2) Parsear fecha de creación (similar a como hicimos con estados)
 df_salesforce_productos = (
     df_salesforce_productos
-        .withColumn("CODMESEVALUACION",
-                    F.date_format("FECCREACION", "yyyyMM"))
+        .withColumn("FECHORCREACION", parse_fecha_hora_esp_col("FECCREACION"))
+        .withColumn("FECCREACION", F.to_date("FECHORCREACION"))
+        .withColumn("CODMESCREACION", F.date_format("FECCREACION", "yyyyMM"))
 )
