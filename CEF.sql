@@ -18,16 +18,51 @@ df_salesforce_productos = (
         )
 )
 
+# =========================================================
+# ✅ NUEVO: Limpiar y validar CODSOLICITUD
+# =========================================================
 df_salesforce_productos = (
     df_salesforce_productos
+        .withColumn("CODSOLICITUD_CLEAN", F.trim(F.col("CODSOLICITUD").cast("string")))
+        .withColumn(
+            "FLG_CODSOLICITUD_VALIDO",
+            F.when(
+                (F.length("CODSOLICITUD_CLEAN") == 11) &
+                (F.col("CODSOLICITUD_CLEAN").startswith("O00")),
+                F.lit(1)
+            ).otherwise(F.lit(0))
+        )
+)
+
+df_salesforce_productos_validos = df_salesforce_productos.filter(F.col("FLG_CODSOLICITUD_VALIDO") == 1)
+df_salesforce_productos_invalidos = df_salesforce_productos.filter(F.col("FLG_CODSOLICITUD_VALIDO") == 0)
+
+print("Productos validos:", df_salesforce_productos_validos.count())
+print("Productos invalidos:", df_salesforce_productos_invalidos.count())
+
+# Si quieres, quedarte ya con CODSOLICITUD limpio:
+df_salesforce_productos_validos = (
+    df_salesforce_productos_validos
+        .drop("CODSOLICITUD")
+        .withColumnRenamed("CODSOLICITUD_CLEAN", "CODSOLICITUD")
+)
+
+# =========================================================
+# Normalización texto (solo en válidos)
+# =========================================================
+df_salesforce_productos_validos = (
+    df_salesforce_productos_validos
         .withColumn("NBRPRODUCTO", norm_txt_spark("NBRPRODUCTO"))
         .withColumn("ETAPA", norm_txt_spark("ETAPA"))
         .withColumn("NBRANALISTA", norm_txt_spark("NBRANALISTA"))
         .withColumn("TIPACCION", norm_txt_spark("TIPACCION"))
 )
 
-df_salesforce_productos = (
-    df_salesforce_productos
+# =========================================================
+# Parseo fecha y CODMESCREACION (solo en válidos)
+# =========================================================
+df_salesforce_productos_validos = (
+    df_salesforce_productos_validos
         .withColumn("FECCREACION_STR", F.trim(F.col("FECCREACION").cast("string")))
         .withColumn(
             "FECCREACION_DATE",
@@ -42,8 +77,8 @@ df_salesforce_productos = (
         .drop("FECCREACION_STR", "FECCREACION_DATE")
 )
 
-df_salesforce_productos = df_salesforce_productos.withColumn(
+df_salesforce_productos_validos = df_salesforce_productos_validos.withColumn(
     "CODMESCREACION", F.col("CODMESCREACION").cast("string")
 )
 
-print("Registros originales SF productos:", df_salesforce_productos.count())
+print("Registros SF productos (validos):", df_salesforce_productos_validos.count())
