@@ -1,3 +1,27 @@
+# 🔧 Pipeline de Integración — Orgánico + Salesforce  
+**Autor:** (tu nombre)  
+**Fecha:** (dd/mm/yyyy)  
+
+Este notebook realiza el procesamiento completo de:
+- Orgánico mensual
+- Salesforce Estados (workflow)
+- Salesforce Productos (oportunidades)
+- Enriquecimiento de actores (nombres → matrículas)
+- Lógica de roles (analista, supervisor, gerente)
+- Flags de autonomía y generación de tabla final.
+
+## 🧩 1. Configuración Inicial  
+### Imports, rutas base y funciones utilitarias
+
+Esta sección contiene:
+- Helpers reutilizables para limpieza de texto  
+- Normalización de tildes  
+- Parsers de fecha en español  
+- Función genérica de matching basada en nombres tokenizados  
+
+> Esta celda debe ejecutarse primero porque provee funciones para el resto del notebook.
+
+
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 import re
@@ -135,6 +159,19 @@ def match_persona_vs_organico(
 
 
 
+## 🧩 2. Carga y Normalización del Orgánico  
+
+### Objetivos:
+- Leer archivos Excel del orgánico mensual.
+- Normalizar columnas (upper, quitar tildes, trim).
+- Estandarizar la estructura.
+- Tokenizar nombres para el proceso de matching.
+- Preparar un DF (`df_org_tokens`) reutilizable en los matchings.
+
+### Resultado:
+Esta sección genera:
+- `df_organico` → datos limpios del orgánico  
+- `df_org_tokens` → tokens por nombre, usado para emparejar con Salesforce  
 
 
 entries = dbutils.fs.ls(BASE_DIR_ORGANICO)
@@ -237,6 +274,20 @@ print("Organico listo:", df_organico.count())
 
 
 
+## 🧩 3. Salesforce — Estados (Histórico de pasos del flujo)
+
+### Objetivos:
+- Cargar el informe "INFORME_ESTADO" desde Azure.
+- Normalizar texto: mayúsculas, quitar tildes, limpiar espacios.
+- Parsear fechas con formato latino ("a. m.", "p. m.").
+- Generar columnas estándar:
+  - `FECINICIOEVALUACION`
+  - `FECHORINICIOEVALUACION`
+  - `HORINICIOEVALUACION`
+  - `CODMESEVALUACION` (YYYYMM)
+
+### Resultado:
+Se obtiene `df_salesforce_estados` limpio y listo para matching.
 
 
 df_sf_estados_raw = (
@@ -313,6 +364,22 @@ print("Registros originales SF estados:", df_salesforce_estados.count())
 
 
 
+## 🧩 4. Matching de Actores en Estados
+
+### Objetivos:
+- Transformar nombres de Salesforce en tokens.
+- Comparar tokens con los tokens del Orgánico por mes.
+- Calcular:
+  - `TOKENS_MATCH`
+  - `RATIO_SF`
+  - `RATIO_ORG`
+- Aplicar tolerancia mínima (3 tokens coincidentes y 60% de ratio).
+- Determinar:
+  - Matrícula del actor (`MATORGANICO`)
+  - Matrícula del actor del paso (`MATORGANICOPASO`)
+
+### Resultado:
+Se genera `df_salesforce_enriq` con matrículas pegadas.
 
 
 # MATCH 1: NBRULTACTOR
@@ -390,6 +457,16 @@ print("Registros enriquecidos estados:", df_salesforce_enriq.count())
 
 
 
+## 🧩 5. Salesforce — Productos (Oportunidades)
+
+### Objetivos:
+- Cargar informe de oportunidades.
+- Normalizar texto (upper + quitar tildes).
+- Parseo robusto de fechas de creación.
+- Generar columna estándar `CODMESCREACION`.
+
+### Resultado:
+`df_salesforce_productos` limpio y preparado para matching del analista.
 
 
 df_sf_productos_raw = (
@@ -470,6 +547,17 @@ print("Registros originales SF productos:", df_salesforce_productos.count())
 
 
 
+## 🧩 6. Matching del Analista de la Oportunidad
+
+### Objetivos:
+- Tokenizar el nombre del analista en productos.
+- Compararlo contra el Orgánico del mes correspondiente.
+- Identificar:
+  - `MATORGANICO_ANALISTA`
+  - `MATSUPERIOR_ANALISTA`
+
+### Resultado:
+`df_productos_enriq` enriquecido con matrículas del analista.
 
 
 df_best_match_analista = match_persona_vs_organico(
@@ -497,3 +585,19 @@ df_productos_enriq = (
 )
 
 print("Registros enriquecidos productos:", df_productos_enriq.count())
+
+
+
+
+
+
+
+
+## 🧩 10. Persistencia en Catálogo (Managed Table)
+
+### Instrucciones:
+La tabla final se persiste como tabla "managed" sin necesidad de path físico:
+
+```sql
+CREATE TABLE catalog.schema.nombre_tabla
+AS SELECT * FROM df_solicitudes_final
