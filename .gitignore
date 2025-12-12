@@ -1,31 +1,32 @@
-## Ignore Visual Studio SSDT sqlproj specific temporary files, build results, etc
-## 
-##
-## Get latest from https://github.com/github/gitignore/blob/master/SSDT-sqlproj.gitignore
-# Build output
-bin/
-obj/
+Mira ya hallé la logica para las autonomias e identificar correctamente al analista.
 
-# DACPAC files
-*.dacpac
+Actualmente los informes de salesforce estado me trae mas de 2 registros donde identificamos si lo aprobó un gerente, supervisor o analista con el Nombre de Paso
+Aca hay dos situaciones cuando es productos de Tarjeta y productos de Credito Efectivo
+Cuando es Tarjeta el Nombre del paso dice APROBACION DE CREDITOS ANALISTA, APROBACION DE CREDITOS SUPERVISOR, APROBACION DE CREDITOS GERENTE
+Cuando es Credito Efectivo el nombre del paso dice EVALUACION DE SOLICITUD cuando es el analista y cuando es supervisor o gerente sale EVALUACION DE SOLICITUD APROBADOR
+Ahora para identificar el producto existe el campo PROCESO en TC dice APROBACION CREDITOS TC Y VARIANTES y para Credito Efectivo dice CO SOLICITUD APROBACIONES TLMK, SFCP APROBACIONES EDUCATIVO o CO SOLICITUD APROBACIONES
 
-# Publish profiles (optional, if environment-specific)
-*.publish.xml
+Entonces por ejemplo
+- si es para un caso de TC (Proceso: APROBACION CREDITOS TC Y VARIANTES) y el Nombre del Paso es APROBACION DE CREDITOS GERENTE si o si será la autonomia del gerente entonces acá usaremos la matricula del gerente
+	Y para identificar al analista buscaremos para la misma solicitud el Nombre del Paso APROBACION DE CREDITOS ANALISTA donde tomaremos la matrícula (MATORGANICO) que viene de salesforce - estados, en caso esta amtricula sea la de un supervisor o la del gerente, usaremos la del MATORGANICOPASO y si aca pasara lo mismo, usaremos la matrícula que vien del informe de salesforce - productos
+	Porque para algunas solicitudes tendremos dos o mas registros para una la misma solicitud donde se diferencia por el Nombre del Paso.
 
-# SQL Server debug files
-*.dbmdl
-*.sqlcmdvars
+- Si es para un caso de TC (Proceso: APROBACION CREDITOS TC Y VARIANTES) y el Nombre del Paso es APROBACION DE CREDITOS SUPERVISOR usaremos la matrícula que figure en MATORGANICO que viene de salesforce - estados para identificar de quien es la autonomia
+	Y para identificar al analista buscaremos para la misma solicitud el Nombre del Paso APROBACION DE CREDITOS ANALISTA donde tomaremos la matrícula (MATORGANICO) que viene de salesforce - estados, en caso esta amtricula sea la de un supervisor o la del gerente, usaremos la del MATORGANICOPASO y si aca pasara lo mismo, usaremos la matrícula que vien del informe de salesforce - productos
+	(FALTA MAPEAR CASOS OBSERVADOS)
 
-# Visual Studio settings
-.vs/
+- Si es para un caso de TC (Proceso: APROBACION CREDITOS TC Y VARIANTES) y el Nombre del Paso es APROBACION DE CREDITOS ANALISTA 
+	Usaremos la matrícula que figure en MATORGANICO para identificar al analista en caso sea una matrícula del supervisor o la del gerente, usaremos la del MATORGANICOPASO y si aca pasara lo mismo, usaremos la matrícula que vien del informe de salesforce - productos
 
-# User-specific files
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
+- Si es para un caso de CEF (Proceso: CO SOLICITUD APROBACIONES TLMK, SFCP APROBACIONES EDUCATIVO o CO SOLICITUD APROBACIONES) y el Nombre del paso es EVALUACION DE SOLICITUD APROBADOR
+	- Para el dueño de la autonomia verificaremos la matrícula 1 si es del gerente o del supervisor
+	- Y para identificar al analista buscaremos para la misma solicitud el Nombre del Paso EVALUACION DE SOLICITUD donde tomaremos la matrícula (MATORGANICO) que viene de salesforce - estados, en caso esta amtricula sea la de un supervisor o la del gerente, usaremos la del MATORGANICOPASO y si aca pasara lo mismo, usaremos la matrícula que vien del informe de salesforce - productos
 
-# Backup files
-*.bak
-*.log
+- Si es para un caso de CEF (Proceso: CO SOLICITUD APROBACIONES TLMK, SFCP APROBACIONES EDUCATIVO o CO SOLICITUD APROBACIONES) y el Nombre del paso es EVALUACION DE SOLICITUD
+	- Usaremos la matrícula que figure en MATORGANICO para identificar al analista en caso sea una matrícula del supervisor o la del gerente, usaremos la del MATORGANICOPASO y si aca pasara lo mismo, usaremos la matrícula que vien del informe de salesforce - productos
+
+
+Ahora cuando veamos un caso de APROBACION DE CREDITOS SUPERVISOR o EVALUACION DE SOLICITUD APROBADOR donde no figure la matrícula del supervisor, tendremos otro FLG que se llame FLGAUTONOMIANALISTA debido a que estos son casos donde un analista aprueba una autonomía porque el supervisor estaba de vacaciones o por X motivo.
+
+Dime si se entiende todo o necesitas que especifique algo mas
 
