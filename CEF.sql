@@ -138,3 +138,11 @@ GROUP BY
     CODMES, CENTROATENCION, CANAL, MATANALISTA, MATSUPERIOR, NBRAREAUNIDADORGANIZATIVAVENDEDOR, TIPOPERACION, DESTIPOPERACION, PRODUCTO, DESPRODUCTO,
     DESCAMPANIA, DESTIPEVALUACIONRIESGO, FECSOLICITUD, FLGDIAUTIL, ESTADOSOLICITUD, DESTIPRENTA, SEGMENTO, TIEMPOATENCIONANALISTA, NUMDIA, BRACKETRENEGOCIADO,
     BRACKETATENCIONSOLICITUD, BRACKETDERIVACIONANALISTA, BRACKETATENCIONANALISTA, BRACKETATENCIONSOLICITUDANALISTA, BRACKETDESEMBOLSOPOSTATENCIONANALISTA;
+
+
+
+
+Esto es la parte final de mi query que el resultado me llevo a Power BI donde realizo las interacciones con los datos. 
+Para ver el detalle por ejemplo de todas las solicitudes que han sido aprobadas ver cuales han sido renegociadas (se le aprueba un monto menor al monto solicitado) queremos verlo por ejemplo como aperturarlo por brackets de todo esto aprobado el 5% de lo que se aprobó se renegoció un 5%, y asi con otros cortes. Para también luego verlo por MATANALISTA
+No quiero llevar ningun porcentaje a mi power bi, quiero llevar los datos y con algun DAX hacer el calculo allá
+Que deberia hacer? QUe me falta? 
