@@ -1,36 +1,95 @@
-(venv) D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic>py main.py
-----
-ruc_consultado: 10788016005
-error: Message: stale element reference: stale element not found
-  (Session info: chrome=143.0.7499.170); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#staleelementreferenceexception
-Stacktrace:
-Symbols not available. Dumping unresolved backtrace:
-        0x7ff679d488e5
-        0x7ff679d48940
-        0x7ff679b2165d
-        0x7ff679b37ed3
-        0x7ff679b369d3
-        0x7ff679b2a006
-        0x7ff679b27f4c
-        0x7ff679b2c3b4
-        0x7ff679b2c47f
-        0x7ff679b792e5
-        0x7ff679b79d3c
-        0x7ff679b6cd6c
-        0x7ff679b6c746
-        0x7ff679bcac97
-        0x7ff679b6ac29
-        0x7ff679b6ba93
-        0x7ff67a060640
-        0x7ff67a05af80
-        0x7ff67a0796e6
-        0x7ff679d65de4
-        0x7ff679d6ed8c
-        0x7ff679d52004
-        0x7ff679d521b5
-        0x7ff679d37ee2
-        0x7ffeea26259d
-        0x7ffeeae2af78
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 
 
-(venv) D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic>py main.py
+def parse_panel(panel) -> Dict[str, Any]:
+    data: Dict[str, Any] = {}
+
+    items = panel.find_elements(By.CSS_SELECTOR, "div.list-group > div.list-group-item")
+    for item in items:
+        cols = item.find_elements(By.CSS_SELECTOR, ".row > div")
+        if not cols:
+            continue
+
+        i = 0
+        while i < len(cols) - 1:
+            col_label = cols[i]
+            col_value = cols[i + 1]
+
+            label_el = col_label.find_elements(By.CSS_SELECTOR, "h4.list-group-item-heading")
+            if not label_el:
+                i += 1
+                continue
+
+            label = _clean_label(label_el[0].text)
+            value = _extract_value(col_value).strip() or "-"
+
+            if label:
+                if label in data:
+                    if isinstance(data[label], list):
+                        data[label].append(value)
+                    else:
+                        data[label] = [data[label], value]
+                else:
+                    data[label] = value
+
+            i += 2
+
+    footer = panel.find_elements(By.CSS_SELECTOR, "div.panel-footer small")
+    if footer:
+        data["fecha_consulta"] = footer[0].text.strip()
+
+    return data
+
+
+
+
+
+def parse_panel_with_retry(driver: webdriver.Chrome, tries: int = 3) -> Dict[str, Any]:
+    last_exc: Exception | None = None
+    for _ in range(tries):
+        try:
+            panel = driver.find_element(By.CSS_SELECTOR, "div.panel.panel-primary")
+            # leer y parsear inmediatamente
+            return parse_panel(panel)
+        except StaleElementReferenceException as e:
+            last_exc = e
+            time.sleep(0.2)  # mini backoff y reintento
+    # si sigue fallando
+    raise last_exc if last_exc else RuntimeError("No se pudo parsear el panel (stale).")
+
+
+
+
+
+
+
+
+
+def consultar_ruc_en_sesion(driver: webdriver.Chrome, wait: WebDriverWait, ruc: str) -> Dict[str, Any]:
+    if not re.fullmatch(r"\d{11}", ruc):
+        raise ValueError(f"RUC inválido: {ruc}")
+
+    # referencia al panel anterior (si existiera)
+    old_panels = driver.find_elements(By.CSS_SELECTOR, "div.panel.panel-primary")
+    old_panel = old_panels[0] if old_panels else None
+
+    inp = wait.until(EC.presence_of_element_located((By.ID, "txtRuc")))
+    inp.clear()
+    inp.send_keys(ruc)
+
+    driver.find_element(By.ID, "btnAceptar").click()
+
+    # si había panel anterior, esperar a que quede stale (SUNAT re-renderiza)
+    if old_panel is not None:
+        try:
+            wait.until(EC.staleness_of(old_panel))
+        except TimeoutException:
+            # no siempre ocurre, seguimos igual
+            pass
+
+    # esperar panel nuevo
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.panel.panel-primary")))
+
+    data = {"ruc_consultado": ruc}
+    data.update(parse_panel_with_retry(driver, tries=4))
+    return data
