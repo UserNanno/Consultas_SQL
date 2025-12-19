@@ -1,3 +1,7 @@
+# =========================================================
+# AJUSTE 1: ESTADOSOLICITUD_PASO = resultado del analista
+# =========================================================
+
 # ====== Estado del paso base (resultado del analista) ======
 w_paso_base = Window.partitionBy("CODSOLICITUD").orderBy(
     F.col("FECHORINICIOEVALUACION").desc(),
@@ -34,6 +38,9 @@ df_final_solicitud = (
 
 
 
+# =========================================================
+# AJUSTE 2: Autonomía por monto (SUP / GERENTE)
+# =========================================================
 
 
 # ====== Regla de autonomía por monto ======
@@ -99,6 +106,9 @@ df_final_solicitud = (
 
 
 
+# =========================================================
+# AJUSTE 3: Estado final RECHAZADO con trazabilidad
+# =========================================================
 
 
 cond_incoherencia = (
