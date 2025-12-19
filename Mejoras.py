@@ -38,8 +38,50 @@ df_analista_from_estados = (
       .filter(F.col("rn") == 1)
       .select(
           "CODSOLICITUD",
-          F.lit(1).alias("FLG_EXISTE_PASO_BASE"),  # ver nota abajo si quieres mantener semántica exacta
           F.col("MAT_ANALISTA_CAND").alias("MAT_ANALISTA_ESTADOS"),
           F.col("ORIGEN_CAND").alias("ORIGEN_MAT_ANALISTA_ESTADOS")
       )
 )
+
+
+
+
+
+
+
+
+
+df_flag_base = (
+    df_salesforce_enriq
+      .filter(F.col("NBRPASO") == "EVALUACION DE SOLICITUD")
+      .select("CODSOLICITUD").distinct()
+      .withColumn("EXISTE_BASE", F.lit(1))
+)
+
+df_flag_aprob = (
+    df_salesforce_enriq
+      .filter(F.col("NBRPASO") == "EVALUACION DE SOLICITUD APROBADOR")
+      .select("CODSOLICITUD").distinct()
+      .withColumn("EXISTE_APROBADOR", F.lit(1))
+)
+
+df_flag_paso_base = (
+    df_flag_base
+      .join(df_flag_aprob, on="CODSOLICITUD", how="left")
+      .withColumn(
+          "FLG_EXISTE_PASO_BASE",
+          F.when((F.col("EXISTE_BASE") == 1) & (F.col("EXISTE_APROBADOR").isNull()), F.lit(1))
+           .otherwise(F.lit(None))
+      )
+      .select("CODSOLICITUD", "FLG_EXISTE_PASO_BASE")
+)
+
+
+
+
+
+.join(df_analista_from_estados, on="CODSOLICITUD", how="left")
+
+
+
+.join(df_flag_paso_base, on="CODSOLICITUD", how="left")
