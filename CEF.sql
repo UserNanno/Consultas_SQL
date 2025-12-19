@@ -1,130 +1,178 @@
-# =========================================================
-# X. POWERAPPS — BaseSolicitudes (Apps)
-#    - Carga 1n_Apps_*.csv
-#    - Normaliza textos
-#    - Convierte Created (UTC) a America/Lima
-#    - Dedup por CODSOLICITUD (máxima FECASIGNACION)
-#    - Mapea MATANALISTA por (CODMES, CORREO) contra Orgánico
-# =========================================================
+asi es mi df final
 
-from pyspark.sql import functions as F
-from pyspark.sql.window import Window
-
-PATH_PA_SOLICITUDES = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/POWERAPPS/BASESOLICITUDES/1n_Apps_*.csv"
-
-df_pa_raw = (
-    spark.read.format("csv")
-      .option("header", "true")
-      .option("sep", ";")                 # 👈 en tu salida local era ';'
-      .option("encoding", "utf-8")        # o "utf-8-sig" no siempre existe en Spark; con utf-8 suele bastar
-      .option("ignoreLeadingWhiteSpace", "true")
-      .option("ignoreTrailingWhiteSpace", "true")
-      .load(PATH_PA_SOLICITUDES)
-)
-
-# 1) Selección + renombre (mismo mapping que pandas)
-df_pa = (
-    df_pa_raw.select(
-        F.col("Title").alias("CODSOLICITUD"),
-        F.col("FechaAsignacion").alias("FECASIGNACION"),
-        F.col("Tipo de Producto").alias("PRODUCTO"),
-        F.col("ResultadoAnalista").alias("RESULTADOANALISTA"),
-        F.col("Mail").alias("CORREO"),
-        F.col("Motivo Resultado Analista").alias("MOTIVORESULTADOANALISTA"),
-        F.col("AñoMes").alias("CODMES"),
-        F.col("Created").alias("CREATED"),
-        F.col("Motivo_MD").alias("MOTIVOMALADERIVACION"),
-        F.col("Submotivo_MD").alias("SUBMOTIVOMALADERIVACION"),
-    )
-    .withColumn("CODMES", F.col("CODMES").cast("string"))
-)
-
-# 2) Parse FECASIGNACION (dayfirst) y Created (UTC->Lima)
-#    - FECASIGNACION: en pandas era dayfirst=True; aquí probamos algunos formatos comunes
-df_pa = (
-    df_pa
-      .withColumn("FECASIGNACION_TS",
-          F.coalesce(
-              F.to_timestamp("FECASIGNACION", "dd/MM/yyyy HH:mm:ss"),
-              F.to_timestamp("FECASIGNACION", "dd/MM/yyyy HH:mm"),
-              F.to_timestamp("FECASIGNACION", "dd/MM/yyyy"),
-              F.to_timestamp("FECASIGNACION")  # fallback
-          )
+df_final_solicitud = (
+    df_last_estado
+      .join(df_productos_base, on="CODSOLICITUD", how="left")
+      .join(df_analista_from_estados, on="CODSOLICITUD", how="left")
+      .join(df_autonomia, on="CODSOLICITUD", how="left")
+      .withColumn("FLG_FALTA_PASO_BASE", F.when(F.col("FLG_EXISTE_PASO_BASE").isNull(), 1).otherwise(0))
+      .withColumn(
+          "FLG_AUTONOMIA_SIN_PASO_BASE",
+          F.when((F.col("ROL_AUTONOMIA").isNotNull()) & (F.col("FLG_EXISTE_PASO_BASE").isNull()), 1).otherwise(0)
       )
+      # Analista final: Mat1/Mat2 (estados) y fallback a Mat3 (productos)
+      .withColumn(
+          "MAT_ANALISTA_FINAL",
+          F.coalesce(F.col("MAT_ANALISTA_ESTADOS"), F.col("MATORGANICO_ANALISTA"))
+      )
+      .withColumn(
+          "ORIGEN_MAT_ANALISTA",
+          F.when(F.col("MAT_ANALISTA_ESTADOS").isNotNull(), F.col("ORIGEN_MAT_ANALISTA_ESTADOS"))
+           .when(F.col("MATORGANICO_ANALISTA").isNotNull(), F.lit("PRODUCTOS_MAT3"))
+           .otherwise(F.lit(None))
+      )
+      .withColumn("TS_ULTIMO_EVENTO", F.col("FECHORINICIOEVALUACION_ULTIMO"))
 )
 
-# Created: suele venir ISO-8601 tipo 2025-11-28T23:59:00Z o con milis
-created_ts = F.to_timestamp("CREATED")  # Spark suele parsear ISO8601; si no, lo ajustamos después
-df_pa = (
-    df_pa
-      .withColumn("CREATED_TS_UTC", created_ts)
-      .withColumn("FECHORACREACION", F.from_utc_timestamp(F.col("CREATED_TS_UTC"), "America/Lima"))
-      .withColumn("FECCREACION", F.to_date("FECHORACREACION"))
-      .withColumn("HORACREACION", F.date_format("FECHORACREACION", "HH:mm:ss"))
+# Selección final SIN NOMBRES (todo por matrícula)
+df_final_solicitud = df_final_solicitud.select(
+    "CODSOLICITUD",
+    "TIPO_PRODUCTO",
+
+    # Productos
+    "CODMESCREACION", "FECCREACION",
+    "NBRPRODUCTO", "ETAPA", "TIPACCION",
+    "NBRDIVISA", "MTOSOLICITADO", "MTOAPROBADO",
+    "MTOOFERTADO", "MTODESEMBOLSADO", "CENTROATENCION",
+    "MATORGANICO_ANALISTA", "MATSUPERIOR_ANALISTA",
+
+    # Último estado (snapshot)
+    "CODMESEVALUACION_ULTIMO", "PROCESO_ULTIMO",
+    "NBRPASO_ULTIMO", "ESTADOSOLICITUD_ULTIMO", "ESTADOSOLICITUD_PASO",
+    "FECHORINICIOEVALUACION_ULTIMO", "FECINICIOEVALUACION_ULTIMO", "HORINICIOEVALUACION_ULTIMO",
+    "FECHORFINEVALUACION_ULTIMO", "FECFINEVALUACION_ULTIMO", "HORFINEVALUACION_ULTIMO",
+
+    # Analista final
+    "MAT_ANALISTA_FINAL", "ORIGEN_MAT_ANALISTA",
+    "FLG_FALTA_PASO_BASE",
+
+    # Autonomía
+    "ROL_AUTONOMIA", "MAT_AUTONOMIA", "NBRPASO_AUTONOMIA",
+    "FLG_AUTONOMIA_GERENTE", "FLG_AUTONOMIA_SUPERVISOR", "FLG_AUTONOMIA_ANALISTA",
+    "FLG_AUTONOMIA_SIN_PASO_BASE",
+    "TS_AUTONOMIA",
+
+    # Control
+    "TS_ULTIMO_EVENTO"
 )
 
-# 3) Normalización de texto (usa tus helpers Spark: norm_txt_spark/quitar_tildes)
-#    OJO: norm_txt_spark espera nombre de columna; aplicamos sobre columnas del DF.
-for c in ["PRODUCTO","RESULTADOANALISTA","MOTIVORESULTADOANALISTA","MOTIVOMALADERIVACION","SUBMOTIVOMALADERIVACION"]:
-    df_pa = df_pa.withColumn(c, norm_txt_spark(c))
 
-# 4) Homologación RESULTADOANALISTA (igual que pandas replace)
-df_pa = (
-    df_pa.withColumn(
-        "RESULTADOANALISTA",
-        F.when(F.col("RESULTADOANALISTA") == "DENEGADO POR ANALISTA DE CREDITO", F.lit("DENEGADO"))
-         .when(F.col("RESULTADOANALISTA") == "APROBADO POR ANALISTA DE CREDITO", F.lit("APROBADO"))
-         .when(F.col("RESULTADOANALISTA") == "DEVOLVER AL GESTOR", F.lit("DEVUELTO AL GESTOR"))
-         .otherwise(F.col("RESULTADOANALISTA"))
-    )
+
+# =========================================================
+# AJUSTE 1: ESTADOSOLICITUD_PASO = resultado del analista
+# =========================================================
+
+# ====== Estado del paso base (resultado del analista) ======
+w_paso_base = Window.partitionBy("CODSOLICITUD").orderBy(
+    F.col("FECHORINICIOEVALUACION").desc(),
+    F.col("FECHORFINEVALUACION").desc()
 )
 
-# 5) Filtrar correos inválidos y mapear MATANALISTA por (CODMES, CORREO) contra Orgánico
-df_org_email = (
-    df_organico
-      .filter((F.col("CORREO").isNotNull()) & (F.col("CORREO") != "-"))
-      .select("CODMES", "CORREO", "MATORGANICO", "FECINGRESO")
-)
-
-df_pa_email = (
-    df_pa
-      .filter((F.col("CORREO").isNotNull()) & (F.col("CORREO") != "-"))
-      .select("CODSOLICITUD", "CODMES", "CORREO")
-      .distinct()
-)
-
-df_merge = (
-    df_pa_email
-      .join(df_org_email, on=["CODMES","CORREO"], how="inner")
-)
-
-# Elegir 1 matrícula por (CODMES, CORREO): la de mayor FECINGRESO (igual que tu pandas)
-w_email = Window.partitionBy("CODMES","CORREO").orderBy(F.col("FECINGRESO").desc_nulls_last())
-df_email_unique = (
-    df_merge
-      .withColumn("rn", F.row_number().over(w_email))
+df_estado_paso_base = (
+    df_salesforce_enriq
+      .filter(es_paso_base)  # ya definido mas arriba
+      .withColumn("rn", F.row_number().over(w_paso_base))
       .filter(F.col("rn") == 1)
-      .select("CODMES","CORREO", F.col("MATORGANICO").alias("MATANALISTA"))
-)
-
-# Traer MATANALISTA a PowerApps
-df_pa = (
-    df_pa
-      .join(df_email_unique, on=["CODMES","CORREO"], how="left")
-)
-
-# 6) Dedup por CODSOLICITUD: quedarnos con la fila de mayor FECASIGNACION (como pandas sort desc + drop_duplicates)
-w_sol = Window.partitionBy("CODSOLICITUD").orderBy(F.col("FECASIGNACION_TS").desc_nulls_last())
-df_powerapp = (
-    df_pa
-      .withColumn("rn", F.row_number().over(w_sol))
-      .filter(F.col("rn") == 1)
-      .drop("rn")
       .select(
-          "CODMES","CODSOLICITUD","FECHORACREACION","FECCREACION","HORACREACION",
-          "MATANALISTA","FECASIGNACION","PRODUCTO","RESULTADOANALISTA","MOTIVORESULTADOANALISTA",
-          "MOTIVOMALADERIVACION","SUBMOTIVOMALADERIVACION"
+          "CODSOLICITUD",
+          F.col("ESTADOSOLICITUDPASO").alias("ESTADOSOLICITUD_PASO_BASE")
       )
 )
 
-print("PowerApps listo:", df_powerapp.count())
+df_final_solicitud = (
+    df_final_solicitud
+      .join(df_estado_paso_base, on="CODSOLICITUD", how="left")
+      .withColumn(
+          "ESTADOSOLICITUD_PASO",
+          F.coalesce(F.col("ESTADOSOLICITUD_PASO_BASE"), F.col("ESTADOSOLICITUD_PASO"))
+      )
+      .drop("ESTADOSOLICITUD_PASO_BASE")
+)
+
+
+
+
+# =========================================================
+# AJUSTE 2: Autonomía por monto (SUP / GERENTE)
+# =========================================================
+
+# ====== Regla de autonomía por monto ======
+def to_num(col):
+    return F.regexp_replace(F.col(col).cast("string"), ",", "").cast("double")
+
+df_final_solicitud = df_final_solicitud.withColumn("MTOAPROBADO_NUM", to_num("MTOAPROBADO"))
+
+aprob_analista = (F.col("ESTADOSOLICITUD_PASO") == "APROBADO")
+mto = F.col("MTOAPROBADO_NUM")
+
+rol_regla = (
+    F.when(aprob_analista & (mto >= 240000), F.lit("GERENTE"))
+     .when(aprob_analista & (mto >= 100000), F.lit("SUPERVISOR"))
+     .otherwise(F.lit(None))
+)
+
+mat_aut_regla = (
+    F.when(rol_regla == "GERENTE", F.lit("U17293"))
+     .when(rol_regla == "SUPERVISOR", F.col("MATSUPERIOR_ANALISTA"))
+)
+
+df_final_solicitud = (
+    df_final_solicitud
+      # Pisar autonomía si aplica regla
+      .withColumn("ROL_AUTONOMIA",
+          F.when(rol_regla.isNotNull(), rol_regla).otherwise(F.col("ROL_AUTONOMIA"))
+      )
+      .withColumn("MAT_AUTONOMIA",
+          F.when(rol_regla.isNotNull(), mat_aut_regla).otherwise(F.col("MAT_AUTONOMIA"))
+      )
+      .withColumn("NBRPASO_AUTONOMIA",
+          F.when(rol_regla == "GERENTE", F.lit("AUTONOMIA POR MONTO GERENTE"))
+           .when(rol_regla == "SUPERVISOR", F.lit("AUTONOMIA POR MONTO SUPERVISOR"))
+           .otherwise(F.col("NBRPASO_AUTONOMIA"))
+      )
+      .withColumn("FLG_AUTONOMIA_GERENTE",
+          F.when(rol_regla == "GERENTE", F.lit(1))
+           .when(rol_regla.isNotNull(), F.lit(0))
+           .otherwise(F.col("FLG_AUTONOMIA_GERENTE"))
+      )
+      .withColumn("FLG_AUTONOMIA_SUPERVISOR",
+          F.when(rol_regla == "SUPERVISOR", F.lit(1))
+           .when(rol_regla.isNotNull(), F.lit(0))
+           .otherwise(F.col("FLG_AUTONOMIA_SUPERVISOR"))
+      )
+      .withColumn("FLG_AUTONOMIA_ANALISTA",
+          F.when(rol_regla.isNotNull(), F.lit(0)).otherwise(F.col("FLG_AUTONOMIA_ANALISTA"))
+      )
+      .withColumn("TS_AUTONOMIA",
+          F.when(rol_regla.isNotNull(), F.col("TS_ULTIMO_EVENTO")).otherwise(F.col("TS_AUTONOMIA"))
+      )
+)
+
+
+
+# =========================================================
+# AJUSTE 3: Estado final RECHAZADO con trazabilidad
+# =========================================================
+
+cond_incoherencia = (
+    (F.col("ESTADOSOLICITUD_ULTIMO") == "PENDIENTE") &
+    (F.col("ETAPA") == "DESESTIMADA") &
+    (rol_regla.isNotNull())
+)
+
+df_final_solicitud = (
+    df_final_solicitud
+      .withColumn("ESTADOSOLICITUD_INICIAL", F.col("ESTADOSOLICITUD_ULTIMO")) 
+      .withColumn(
+          "ESTADOSOLICITUD_ULTIMO",
+          F.when(cond_incoherencia, F.lit("RECHAZADO"))
+           .otherwise(F.col("ESTADOSOLICITUD_ULTIMO"))
+      )
+)
+
+
+df_final_solicitud.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable("CATALOG_LHCL_PROD_BCP_EXPL.BCP_EDV_RBMBDN.TP_SOLICITUDES_CENTRALIZADO")
