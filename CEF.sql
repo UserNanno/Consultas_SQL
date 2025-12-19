@@ -1,187 +1,138 @@
-df_final_solicitud = (
-    df_last_estado
-      .join(df_productos_base, on="CODSOLICITUD", how="left")
-      .join(df_analista_from_estados, on="CODSOLICITUD", how="left")
-      .join(df_autonomia, on="CODSOLICITUD", how="left")
-      .withColumn("FLG_FALTA_PASO_BASE", F.when(F.col("FLG_EXISTE_PASO_BASE").isNull(), 1).otherwise(0))
-      .withColumn(
-          "FLG_AUTONOMIA_SIN_PASO_BASE",
-          F.when((F.col("ROL_AUTONOMIA").isNotNull()) & (F.col("FLG_EXISTE_PASO_BASE").isNull()), 1).otherwise(0)
-      )
-      .withColumn(
-          "MAT_ANALISTA_FINAL",
-          F.coalesce(F.col("MAT_ANALISTA_ESTADOS"), F.col("MATORGANICO_ANALISTA"))
-      )
-      .withColumn(
-          "ORIGEN_MAT_ANALISTA",
-          F.when(F.col("MAT_ANALISTA_ESTADOS").isNotNull(), F.col("ORIGEN_MAT_ANALISTA_ESTADOS"))
-           .when(F.col("MATORGANICO_ANALISTA").isNotNull(), F.lit("PRODUCTOS_MAT3"))
-           .otherwise(F.lit(None))
-      )
-      .withColumn("TS_ULTIMO_EVENTO", F.col("FECHORINICIOEVALUACION_ULTIMO"))
-)
+from __future__ import annotations
+
+import re
+from typing import Dict, Any, List
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 
+URL = "https://e-consultaruc.sunat.gob.pe/cl-ti-itmrconsruc/FrameCriterioBusquedaWeb.jsp"
 
 
+def _clean_label(s: str) -> str:
+    s = (s or "").strip()
+    s = re.sub(r":\s*$", "", s)  # quita ":" final
+    return s
 
 
+def _extract_value(cell) -> str:
+    """
+    En la columna de valor puede haber:
+    - <h4>...</h4> (caso Número de RUC)
+    - <p>...</p>
+    - <table> con filas <tr><td>...</td></tr>
+    """
+    # 1) Tabla (lista)
+    if cell.find_elements(By.CSS_SELECTOR, "table"):
+        rows: List[str] = []
+        for td in cell.find_elements(By.CSS_SELECTOR, "table tr td"):
+            t = td.text.strip()
+            if t:
+                rows.append(t)
+        return "\n".join(rows).strip() if rows else "-"
+
+    # 2) p
+    ps = cell.find_elements(By.CSS_SELECTOR, "p")
+    if ps:
+        t = " ".join(p.text.strip() for p in ps if p.text.strip())
+        return t if t else "-"
+
+    # 3) h4
+    h4s = cell.find_elements(By.CSS_SELECTOR, "h4")
+    if h4s:
+        t = " ".join(h.text.strip() for h in h4s if h.text.strip())
+        return t if t else "-"
+
+    # 4) fallback
+    t = cell.text.strip()
+    return t if t else "-"
 
 
+def consultar_ruc(ruc: str, headless: bool = False, timeout: int = 25) -> Dict[str, Any]:
+    if not re.fullmatch(r"\d{11}", ruc):
+        raise ValueError("El RUC debe tener 11 dígitos.")
+
+    opts = Options()
+    if headless:
+        # Si hay CAPTCHA, NO uses headless (mejor visible para resolverlo).
+        opts.add_argument("--headless=new")
+    opts.add_argument("--window-size=1280,900")
+
+    driver = webdriver.Chrome(options=opts)
+    wait = WebDriverWait(driver, timeout)
+
+    try:
+        driver.get(URL)
+
+        # Ingresar RUC
+        input_ruc = wait.until(EC.presence_of_element_located((By.ID, "txtRuc")))
+        input_ruc.clear()
+        input_ruc.send_keys(ruc)
+
+        # Click Buscar
+        driver.find_element(By.ID, "btnAceptar").click()
+
+        # Esperar panel resultado
+        panel = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.panel.panel-primary")))
+
+        data: Dict[str, Any] = {"ruc_consultado": ruc}
+
+        # Recorremos cada bloque list-group-item
+        items = panel.find_elements(By.CSS_SELECTOR, "div.list-group > div.list-group-item")
+        for item in items:
+            cols = item.find_elements(By.CSS_SELECTOR, ".row > div")
+            if not cols:
+                continue
+
+            # Parse por parejas: (label_col, value_col)
+            i = 0
+            while i < len(cols) - 1:
+                col_label = cols[i]
+                col_value = cols[i + 1]
+
+                label_el = col_label.find_elements(By.CSS_SELECTOR, "h4.list-group-item-heading")
+                if not label_el:
+                    i += 1
+                    continue
+
+                label = _clean_label(label_el[0].text)
+                if not label:
+                    i += 2
+                    continue
+
+                value = _extract_value(col_value).strip()
+                if not value:
+                    value = "-"
+
+                # Guardar (si se repite label, acumular)
+                if label in data:
+                    if isinstance(data[label], list):
+                        data[label].append(value)
+                    else:
+                        data[label] = [data[label], value]
+                else:
+                    data[label] = value
+
+                i += 2
+
+            # Si hay un caso raro donde queda una última columna suelta (impar), la ignoramos.
+
+        # Footer (fecha consulta)
+        footer = panel.find_elements(By.CSS_SELECTOR, "div.panel-footer small")
+        if footer:
+            data["fecha_consulta"] = footer[0].text.strip()
+
+        return data
+
+    finally:
+        driver.quit()
 
 
-
-
-w_paso_base = Window.partitionBy("CODSOLICITUD").orderBy(
-    F.col("FECHORINICIOEVALUACION").desc(),
-    F.col("FECHORFINEVALUACION").desc()
-)
-
-df_estado_paso_base = (
-    df_salesforce_enriq
-      .filter(es_paso_base)
-      .withColumn("rn", F.row_number().over(w_paso_base))
-      .filter(F.col("rn") == 1)
-      .select(
-          "CODSOLICITUD",
-          F.col("ESTADOSOLICITUDPASO").alias("ESTADOSOLICITUD_PASO_BASE")
-      )
-)
-
-df_final_solicitud = (
-    df_final_solicitud
-      .join(df_estado_paso_base, on="CODSOLICITUD", how="left")
-      .withColumn(
-          "ESTADOSOLICITUD_PASO",
-          F.coalesce(F.col("ESTADOSOLICITUD_PASO_BASE"), F.col("ESTADOSOLICITUD_PASO"))
-      )
-      .drop("ESTADOSOLICITUD_PASO_BASE")
-)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def to_num(col):
-    return F.regexp_replace(F.col(col).cast("string"), ",", "").cast("double")
-
-df_final_solicitud = df_final_solicitud.withColumn("MTOAPROBADO_NUM", to_num("MTOAPROBADO"))
-
-aprob_analista = (F.col("ESTADOSOLICITUD_PASO") == "APROBADO")
-mto = F.col("MTOAPROBADO_NUM")
-
-rol_regla = (
-    F.when(aprob_analista & (mto >= 240000), F.lit("GERENTE"))
-     .when(aprob_analista & (mto >= 100000), F.lit("SUPERVISOR"))
-     .otherwise(F.lit(None))
-)
-
-mat_aut_regla = (
-    F.when(rol_regla == "GERENTE", F.lit("U17293"))
-     .when(rol_regla == "SUPERVISOR", F.col("MATSUPERIOR_ANALISTA"))
-)
-
-df_final_solicitud = (
-    df_final_solicitud
-      .withColumn("ROL_AUTONOMIA",
-          F.when(rol_regla.isNotNull(), rol_regla).otherwise(F.col("ROL_AUTONOMIA"))
-      )
-      .withColumn("MAT_AUTONOMIA",
-          F.when(rol_regla.isNotNull(), mat_aut_regla).otherwise(F.col("MAT_AUTONOMIA"))
-      )
-      .withColumn("NBRPASO_AUTONOMIA",
-          F.when(rol_regla == "GERENTE", F.lit("AUTONOMIA POR MONTO GERENTE"))
-           .when(rol_regla == "SUPERVISOR", F.lit("AUTONOMIA POR MONTO SUPERVISOR"))
-           .otherwise(F.col("NBRPASO_AUTONOMIA"))
-      )
-      .withColumn("FLG_AUTONOMIA_GERENTE",
-          F.when(rol_regla == "GERENTE", F.lit(1))
-           .when(rol_regla.isNotNull(), F.lit(0))
-           .otherwise(F.col("FLG_AUTONOMIA_GERENTE"))
-      )
-      .withColumn("FLG_AUTONOMIA_SUPERVISOR",
-          F.when(rol_regla == "SUPERVISOR", F.lit(1))
-           .when(rol_regla.isNotNull(), F.lit(0))
-           .otherwise(F.col("FLG_AUTONOMIA_SUPERVISOR"))
-      )
-      .withColumn("FLG_AUTONOMIA_ANALISTA",
-          F.when(rol_regla.isNotNull(), F.lit(0)).otherwise(F.col("FLG_AUTONOMIA_ANALISTA"))
-      )
-      .withColumn("TS_AUTONOMIA",
-          F.when(rol_regla.isNotNull(), F.col("TS_ULTIMO_EVENTO")).otherwise(F.col("TS_AUTONOMIA"))
-      )
-)
-
-
-
-
-
-
-
-
-
-
-
-
-cond_incoherencia = (
-    (F.col("ESTADOSOLICITUD_ULTIMO") == "PENDIENTE") &
-    (F.col("ETAPA") == "DESESTIMADA") &
-    (rol_regla.isNotNull())
-)
-
-df_final_solicitud = (
-    df_final_solicitud
-      .withColumn("ESTADOSOLICITUD_INICIAL", F.col("ESTADOSOLICITUD_ULTIMO"))
-      .withColumn(
-          "ESTADOSOLICITUD_ULTIMO",
-          F.when(cond_incoherencia, F.lit("RECHAZADO"))
-           .otherwise(F.col("ESTADOSOLICITUD_ULTIMO"))
-      )
-)
-
-
-
-
-
-
-
-
-
-
-
-
-
-df_final_solicitud = (
-    df_final_solicitud
-      .join(
-          df_powerapp.select(
-              "CODSOLICITUD",
-              F.col("MATANALISTA").alias("MATANALISTA_APPS"),
-              F.col("RESULTADOANALISTA").alias("RESULTADOANALISTA_APPS"),
-              F.col("PRODUCTO").alias("PRODUCTO_APPS"),
-              "MOTIVORESULTADOANALISTA",
-              "MOTIVOMALADERIVACION",
-              "SUBMOTIVOMALADERIVACION"
-          ).dropDuplicates(["CODSOLICITUD"]),
-          on="CODSOLICITUD",
-          how="left"
-      )
-      .withColumn("MAT_ANALISTA_FINAL", F.coalesce(F.col("MAT_ANALISTA_FINAL"), F.col("MATANALISTA_APPS")))
-      .withColumn("ESTADOSOLICITUD_ULTIMO", F.coalesce(F.col("ESTADOSOLICITUD_ULTIMO"), F.col("RESULTADOANALISTA_APPS")))
-      .withColumn("NBRPRODUCTO", F.coalesce(F.col("NBRPRODUCTO"), F.col("PRODUCTO_APPS")))
-      .withColumn(
-          "ORIGEN_MAT_ANALISTA",
-          F.when(F.col("ORIGEN_MAT_ANALISTA").isNull() & F.col("MATANALISTA_APPS").isNotNull(), F.lit("APPS_MAT"))
-           .otherwise(F.col("ORIGEN_MAT_ANALISTA"))
-      )
-      .drop("MATANALISTA_APPS", "RESULTADOANALISTA_APPS", "PRODUCTO_APPS")
-)
+if __name__ == "__main__":
+    resultado = consultar_ruc("10788016005", headless=False)
+    for k, v in resultado.items():
+        print(f"{k}: {v}")
