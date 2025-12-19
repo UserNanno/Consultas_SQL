@@ -1,139 +1,130 @@
-import pandas as pd
-import glob, os, unicodedata
+# =========================================================
+# X. POWERAPPS — BaseSolicitudes (Apps)
+#    - Carga 1n_Apps_*.csv
+#    - Normaliza textos
+#    - Convierte Created (UTC) a America/Lima
+#    - Dedup por CODSOLICITUD (máxima FECASIGNACION)
+#    - Mapea MATANALISTA por (CODMES, CORREO) contra Orgánico
+# =========================================================
 
-pd.set_option("display.max_columns", None)
-pd.set_option("display.max_rows", None)
-pd.set_option("display.width", None)
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 
-def quitar_tildes(s):
-    if isinstance(s, str):
-        return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
-    return s
+PATH_PA_SOLICITUDES = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/POWERAPPS/BASESOLICITUDES/1n_Apps_*.csv"
 
-def norm_txt(s):
-    # normaliza - tildes -> strip -> upper
-    if not isinstance(s, str):
-        return s if pd.notna(s) else s
-    return quitar_tildes(s).strip().upper()
-
-
-PATH_POWERAPP = "INPUT/POWERAPP/"
-FILES = glob.glob(os.path.join(PATH_POWERAPP, "1n_Apps_2025*.csv"))
-
-df = pd.concat((pd.read_csv(f) for f in FILES), ignore_index=True)
-
-cols_selected = [
-    'Title', 'FechaAsignacion', 'Tipo de Producto', 'ResultadoAnalista',
-    'Mail', 'Motivo Resultado Analista', 'AñoMes', 'Created',
-    'Motivo_MD', 'Submotivo_MD'
-]
-tp_powerapp = df[cols_selected].rename(columns={
-    'Title': 'CODSOLICITUD',
-    'FechaAsignacion': 'FECASIGNACION',
-    'Tipo de Producto': 'PRODUCTO',
-    'ResultadoAnalista': 'RESULTADOANALISTA',
-    'Mail': 'CORREO',
-    'Motivo Resultado Analista': 'MOTIVORESULTADOANALISTA',
-    'AñoMes': 'CODMES',
-    'Created': 'CREATED',
-    'Motivo_MD': 'MOTIVOMALADERIVACION',
-    'Submotivo_MD': 'SUBMOTIVOMALADERIVACION'
-})
-
-
-tp_powerapp["FECASIGNACION"] = pd.to_datetime(tp_powerapp["FECASIGNACION"], errors="coerce", dayfirst=True)
-
-
-tp_powerapp = tp_powerapp.sort_values(by='FECASIGNACION', ascending=False)
-
-
-tp_powerapp_clean = tp_powerapp.drop_duplicates(subset=['CODSOLICITUD'], keep='first')
-
-
-# Normalizacion de texto
-cols_norm = [
-    'PRODUCTO', 'RESULTADOANALISTA',
-    'MOTIVORESULTADOANALISTA', 'MOTIVOMALADERIVACION', 'SUBMOTIVOMALADERIVACION'
-]
-for col in cols_norm:
-    tp_powerapp_clean.loc[:, col] = tp_powerapp_clean[col].apply(norm_txt)
-
-tp_powerapp_clean.loc[:, "RESULTADOANALISTA"] = tp_powerapp_clean["RESULTADOANALISTA"].replace({
-    "DENEGADO POR ANALISTA DE CREDITO": "DENEGADO",
-    "APROBADO POR ANALISTA DE CREDITO": "APROBADO",
-    "DEVOLVER AL GESTOR": "DEVUELTO AL GESTOR"
-})
-
-
-tp_powerapp_clean = tp_powerapp_clean.copy()
-
-
-# Fechas/horas (UTC -> America/Lima)
-created_lima = (
-    pd.to_datetime(tp_powerapp_clean["CREATED"], utc=True, errors="coerce")
-      .dt.tz_convert("America/Lima")
-      .dt.floor("min")
+df_pa_raw = (
+    spark.read.format("csv")
+      .option("header", "true")
+      .option("sep", ";")                 # 👈 en tu salida local era ';'
+      .option("encoding", "utf-8")        # o "utf-8-sig" no siempre existe en Spark; con utf-8 suele bastar
+      .option("ignoreLeadingWhiteSpace", "true")
+      .option("ignoreTrailingWhiteSpace", "true")
+      .load(PATH_PA_SOLICITUDES)
 )
 
-tp_powerapp_clean.loc[:, "FECCREACION"] = created_lima.dt.date
-tp_powerapp_clean.loc[:, "HORACREACION"]  = created_lima.dt.time
-tp_powerapp_clean.loc[:, "FECHORACREACION"] = created_lima.dt.tz_localize(None)
-
-
-tp_powerapp_clean["FECASIGNACION"] = pd.to_datetime(
-    tp_powerapp_clean["FECASIGNACION"].astype(str),
-    dayfirst=True,
-    errors="coerce"
+# 1) Selección + renombre (mismo mapping que pandas)
+df_pa = (
+    df_pa_raw.select(
+        F.col("Title").alias("CODSOLICITUD"),
+        F.col("FechaAsignacion").alias("FECASIGNACION"),
+        F.col("Tipo de Producto").alias("PRODUCTO"),
+        F.col("ResultadoAnalista").alias("RESULTADOANALISTA"),
+        F.col("Mail").alias("CORREO"),
+        F.col("Motivo Resultado Analista").alias("MOTIVORESULTADOANALISTA"),
+        F.col("AñoMes").alias("CODMES"),
+        F.col("Created").alias("CREATED"),
+        F.col("Motivo_MD").alias("MOTIVOMALADERIVACION"),
+        F.col("Submotivo_MD").alias("SUBMOTIVOMALADERIVACION"),
+    )
+    .withColumn("CODMES", F.col("CODMES").cast("string"))
 )
 
-
-df_organico = df_organico[df_organico['CORREO'] != '-']
-
-
-correos_mes = tp_powerapp_clean[['CORREO', 'CODMES']]
-
-df_merge = pd.merge(
-    tp_powerapp_clean[['CODMES','CORREO']],
-    df_organico[['CODMES','CORREO','MATORGANICO','FECINGRESO']],
-    on=['CODMES','CORREO'],
-    how='inner'
+# 2) Parse FECASIGNACION (dayfirst) y Created (UTC->Lima)
+#    - FECASIGNACION: en pandas era dayfirst=True; aquí probamos algunos formatos comunes
+df_pa = (
+    df_pa
+      .withColumn("FECASIGNACION_TS",
+          F.coalesce(
+              F.to_timestamp("FECASIGNACION", "dd/MM/yyyy HH:mm:ss"),
+              F.to_timestamp("FECASIGNACION", "dd/MM/yyyy HH:mm"),
+              F.to_timestamp("FECASIGNACION", "dd/MM/yyyy"),
+              F.to_timestamp("FECASIGNACION")  # fallback
+          )
+      )
 )
 
-df_merge = df_merge.sort_values('FECINGRESO', ascending=False)
-df_unique = df_merge.drop_duplicates(subset=['CODMES','CORREO'])
-
-
-df_final = df_unique[['CODMES','MATORGANICO','CORREO']]
-
-
-tp_powerapp_clean = pd.merge(
-    tp_powerapp_clean,
-    df_final.rename(columns={'MATORGANICO':'MATANALISTA'}),
-    on=['CODMES','CORREO'],
-    how='left'
+# Created: suele venir ISO-8601 tipo 2025-11-28T23:59:00Z o con milis
+created_ts = F.to_timestamp("CREATED")  # Spark suele parsear ISO8601; si no, lo ajustamos después
+df_pa = (
+    df_pa
+      .withColumn("CREATED_TS_UTC", created_ts)
+      .withColumn("FECHORACREACION", F.from_utc_timestamp(F.col("CREATED_TS_UTC"), "America/Lima"))
+      .withColumn("FECCREACION", F.to_date("FECHORACREACION"))
+      .withColumn("HORACREACION", F.date_format("FECHORACREACION", "HH:mm:ss"))
 )
 
+# 3) Normalización de texto (usa tus helpers Spark: norm_txt_spark/quitar_tildes)
+#    OJO: norm_txt_spark espera nombre de columna; aplicamos sobre columnas del DF.
+for c in ["PRODUCTO","RESULTADOANALISTA","MOTIVORESULTADOANALISTA","MOTIVOMALADERIVACION","SUBMOTIVOMALADERIVACION"]:
+    df_pa = df_pa.withColumn(c, norm_txt_spark(c))
 
-columnas = ["CODMES", "CODSOLICITUD", "FECHORACREACION", "FECCREACION", "HORACREACION", "MATANALISTA", 
-            "FECASIGNACION", "PRODUCTO", "RESULTADOANALISTA", "MOTIVORESULTADOANALISTA", "MOTIVOMALADERIVACION", "SUBMOTIVOMALADERIVACION"]
-
-tp_powerapp = tp_powerapp_clean[columnas]
-
-
-df_powerapp = tp_powerapp.drop_duplicates()
-
-df_powerapp.to_csv(
-    "OUTPUT/POWERAPP_EDV.csv", index=False, encoding="utf-8-sig", sep=';'
+# 4) Homologación RESULTADOANALISTA (igual que pandas replace)
+df_pa = (
+    df_pa.withColumn(
+        "RESULTADOANALISTA",
+        F.when(F.col("RESULTADOANALISTA") == "DENEGADO POR ANALISTA DE CREDITO", F.lit("DENEGADO"))
+         .when(F.col("RESULTADOANALISTA") == "APROBADO POR ANALISTA DE CREDITO", F.lit("APROBADO"))
+         .when(F.col("RESULTADOANALISTA") == "DEVOLVER AL GESTOR", F.lit("DEVUELTO AL GESTOR"))
+         .otherwise(F.col("RESULTADOANALISTA"))
+    )
 )
 
+# 5) Filtrar correos inválidos y mapear MATANALISTA por (CODMES, CORREO) contra Orgánico
+df_org_email = (
+    df_organico
+      .filter((F.col("CORREO").isNotNull()) & (F.col("CORREO") != "-"))
+      .select("CODMES", "CORREO", "MATORGANICO", "FECINGRESO")
+)
 
+df_pa_email = (
+    df_pa
+      .filter((F.col("CORREO").isNotNull()) & (F.col("CORREO") != "-"))
+      .select("CODSOLICITUD", "CODMES", "CORREO")
+      .distinct()
+)
 
+df_merge = (
+    df_pa_email
+      .join(df_org_email, on=["CODMES","CORREO"], how="inner")
+)
 
+# Elegir 1 matrícula por (CODMES, CORREO): la de mayor FECINGRESO (igual que tu pandas)
+w_email = Window.partitionBy("CODMES","CORREO").orderBy(F.col("FECINGRESO").desc_nulls_last())
+df_email_unique = (
+    df_merge
+      .withColumn("rn", F.row_number().over(w_email))
+      .filter(F.col("rn") == 1)
+      .select("CODMES","CORREO", F.col("MATORGANICO").alias("MATANALISTA"))
+)
 
+# Traer MATANALISTA a PowerApps
+df_pa = (
+    df_pa
+      .join(df_email_unique, on=["CODMES","CORREO"], how="left")
+)
 
-En mi proceso que lo tenía en local de jupyter notebook lo preprocesaba de esta forma
-El organico es lo que ya tenemos, incluso el mismo campo correo
+# 6) Dedup por CODSOLICITUD: quedarnos con la fila de mayor FECASIGNACION (como pandas sort desc + drop_duplicates)
+w_sol = Window.partitionBy("CODSOLICITUD").orderBy(F.col("FECASIGNACION_TS").desc_nulls_last())
+df_powerapp = (
+    df_pa
+      .withColumn("rn", F.row_number().over(w_sol))
+      .filter(F.col("rn") == 1)
+      .drop("rn")
+      .select(
+          "CODMES","CODSOLICITUD","FECHORACREACION","FECCREACION","HORACREACION",
+          "MATANALISTA","FECASIGNACION","PRODUCTO","RESULTADOANALISTA","MOTIVORESULTADOANALISTA",
+          "MOTIVOMALADERIVACION","SUBMOTIVOMALADERIVACION"
+      )
+)
 
-El ruta donde estarn todos los archivos PATH_PA_SOLICITUDES = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/POWERAPPS/BASESOLICITUDES/1n_Apps_*.csv"
-
-Entonces en el mismo pipeline creemos una sección para procesar esto y luego hacerle el join 
+print("PowerApps listo:", df_powerapp.count())
