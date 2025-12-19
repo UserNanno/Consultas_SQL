@@ -1,3 +1,7 @@
-display(df_sf_estados_raw \
-    .filter(F.col("Nombre del registro") == "O0018721853") \
-    .show(truncate=False))
+APROBACION DE CREDITOS ANALISTA
+
+APROBACIÃ³N DE CRÃ©DITOS SUPERVISOR
+
+EVALUACIÃ³N DE SOLICITUD APROBADOR
+
+EVALUACIÃ³N DE SOLICITUD
