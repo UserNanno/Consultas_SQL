@@ -1,5 +1,6 @@
-asi es mi df final
-
+# =========================
+# ARMADO BASE (sin select todavía)
+# =========================
 df_final_solicitud = (
     df_last_estado
       .join(df_productos_base, on="CODSOLICITUD", how="left")
@@ -10,7 +11,6 @@ df_final_solicitud = (
           "FLG_AUTONOMIA_SIN_PASO_BASE",
           F.when((F.col("ROL_AUTONOMIA").isNotNull()) & (F.col("FLG_EXISTE_PASO_BASE").isNull()), 1).otherwise(0)
       )
-      # Analista final: Mat1/Mat2 (estados) y fallback a Mat3 (productos)
       .withColumn(
           "MAT_ANALISTA_FINAL",
           F.coalesce(F.col("MAT_ANALISTA_ESTADOS"), F.col("MATORGANICO_ANALISTA"))
@@ -24,45 +24,9 @@ df_final_solicitud = (
       .withColumn("TS_ULTIMO_EVENTO", F.col("FECHORINICIOEVALUACION_ULTIMO"))
 )
 
-# Selección final SIN NOMBRES (todo por matrícula)
-df_final_solicitud = df_final_solicitud.select(
-    "CODSOLICITUD",
-    "TIPO_PRODUCTO",
-
-    # Productos
-    "CODMESCREACION", "FECCREACION",
-    "NBRPRODUCTO", "ETAPA", "TIPACCION",
-    "NBRDIVISA", "MTOSOLICITADO", "MTOAPROBADO",
-    "MTOOFERTADO", "MTODESEMBOLSADO", "CENTROATENCION",
-    "MATORGANICO_ANALISTA", "MATSUPERIOR_ANALISTA",
-
-    # Último estado (snapshot)
-    "CODMESEVALUACION_ULTIMO", "PROCESO_ULTIMO",
-    "NBRPASO_ULTIMO", "ESTADOSOLICITUD_ULTIMO", "ESTADOSOLICITUD_PASO",
-    "FECHORINICIOEVALUACION_ULTIMO", "FECINICIOEVALUACION_ULTIMO", "HORINICIOEVALUACION_ULTIMO",
-    "FECHORFINEVALUACION_ULTIMO", "FECFINEVALUACION_ULTIMO", "HORFINEVALUACION_ULTIMO",
-
-    # Analista final
-    "MAT_ANALISTA_FINAL", "ORIGEN_MAT_ANALISTA",
-    "FLG_FALTA_PASO_BASE",
-
-    # Autonomía
-    "ROL_AUTONOMIA", "MAT_AUTONOMIA", "NBRPASO_AUTONOMIA",
-    "FLG_AUTONOMIA_GERENTE", "FLG_AUTONOMIA_SUPERVISOR", "FLG_AUTONOMIA_ANALISTA",
-    "FLG_AUTONOMIA_SIN_PASO_BASE",
-    "TS_AUTONOMIA",
-
-    # Control
-    "TS_ULTIMO_EVENTO"
-)
-
-
-
 # =========================================================
-# AJUSTE 1: ESTADOSOLICITUD_PASO = resultado del analista
+# AJUSTE 1: ESTADOSOLICITUD_PASO = resultado del analista (paso base)
 # =========================================================
-
-# ====== Estado del paso base (resultado del analista) ======
 w_paso_base = Window.partitionBy("CODSOLICITUD").orderBy(
     F.col("FECHORINICIOEVALUACION").desc(),
     F.col("FECHORFINEVALUACION").desc()
@@ -70,7 +34,7 @@ w_paso_base = Window.partitionBy("CODSOLICITUD").orderBy(
 
 df_estado_paso_base = (
     df_salesforce_enriq
-      .filter(es_paso_base)  # ya definido mas arriba
+      .filter(es_paso_base)
       .withColumn("rn", F.row_number().over(w_paso_base))
       .filter(F.col("rn") == 1)
       .select(
@@ -89,14 +53,9 @@ df_final_solicitud = (
       .drop("ESTADOSOLICITUD_PASO_BASE")
 )
 
-
-
-
 # =========================================================
 # AJUSTE 2: Autonomía por monto (SUP / GERENTE)
 # =========================================================
-
-# ====== Regla de autonomía por monto ======
 def to_num(col):
     return F.regexp_replace(F.col(col).cast("string"), ",", "").cast("double")
 
@@ -118,7 +77,6 @@ mat_aut_regla = (
 
 df_final_solicitud = (
     df_final_solicitud
-      # Pisar autonomía si aplica regla
       .withColumn("ROL_AUTONOMIA",
           F.when(rol_regla.isNotNull(), rol_regla).otherwise(F.col("ROL_AUTONOMIA"))
       )
@@ -148,12 +106,9 @@ df_final_solicitud = (
       )
 )
 
-
-
 # =========================================================
 # AJUSTE 3: Estado final RECHAZADO con trazabilidad
 # =========================================================
-
 cond_incoherencia = (
     (F.col("ESTADOSOLICITUD_ULTIMO") == "PENDIENTE") &
     (F.col("ETAPA") == "DESESTIMADA") &
@@ -162,7 +117,7 @@ cond_incoherencia = (
 
 df_final_solicitud = (
     df_final_solicitud
-      .withColumn("ESTADOSOLICITUD_INICIAL", F.col("ESTADOSOLICITUD_ULTIMO")) 
+      .withColumn("ESTADOSOLICITUD_INICIAL", F.col("ESTADOSOLICITUD_ULTIMO"))
       .withColumn(
           "ESTADOSOLICITUD_ULTIMO",
           F.when(cond_incoherencia, F.lit("RECHAZADO"))
@@ -170,7 +125,77 @@ df_final_solicitud = (
       )
 )
 
+# =========================================================
+# AJUSTE 4: Join PowerApps + fallback (solo si SF es nulo) + malas derivadas
+# =========================================================
+df_apps = (
+    df_powerapp.select(
+        "CODSOLICITUD",
+        F.col("MATANALISTA").alias("MATANALISTA_APPS"),
+        F.col("RESULTADOANALISTA").alias("RESULTADOANALISTA_APPS"),
+        F.col("PRODUCTO").alias("PRODUCTO_APPS"),
+        "MOTIVOMALADERIVACION",
+        "SUBMOTIVOMALADERIVACION"
+    ).dropDuplicates(["CODSOLICITUD"])
+)
 
+df_final_solicitud = (
+    df_final_solicitud
+      .join(df_apps, on="CODSOLICITUD", how="left")
+      .withColumn("MAT_ANALISTA_FINAL", F.coalesce(F.col("MAT_ANALISTA_FINAL"), F.col("MATANALISTA_APPS")))
+      .withColumn("ESTADOSOLICITUD_ULTIMO", F.coalesce(F.col("ESTADOSOLICITUD_ULTIMO"), F.col("RESULTADOANALISTA_APPS")))
+      .withColumn("NBRPRODUCTO", F.coalesce(F.col("NBRPRODUCTO"), F.col("PRODUCTO_APPS")))
+      .withColumn(
+          "ORIGEN_MAT_ANALISTA",
+          F.when(F.col("ORIGEN_MAT_ANALISTA").isNull() & F.col("MATANALISTA_APPS").isNotNull(), F.lit("APPS_MAT"))
+           .otherwise(F.col("ORIGEN_MAT_ANALISTA"))
+      )
+      .drop("MATANALISTA_APPS", "RESULTADOANALISTA_APPS", "PRODUCTO_APPS")
+)
+
+# =========================
+# SELECT FINAL (único)
+# =========================
+df_final_solicitud = df_final_solicitud.select(
+    "CODSOLICITUD",
+    "TIPO_PRODUCTO",
+
+    # Productos
+    "CODMESCREACION", "FECCREACION",
+    "NBRPRODUCTO", "ETAPA", "TIPACCION",
+    "NBRDIVISA", "MTOSOLICITADO", "MTOAPROBADO",
+    "MTOOFERTADO", "MTODESEMBOLSADO", "CENTROATENCION",
+    "MATORGANICO_ANALISTA", "MATSUPERIOR_ANALISTA",
+
+    # Último estado (snapshot)
+    "CODMESEVALUACION_ULTIMO", "PROCESO_ULTIMO",
+    "NBRPASO_ULTIMO", "ESTADOSOLICITUD_ULTIMO", "ESTADOSOLICITUD_PASO",
+    "FECHORINICIOEVALUACION_ULTIMO", "FECINICIOEVALUACION_ULTIMO", "HORINICIOEVALUACION_ULTIMO",
+    "FECHORFINEVALUACION_ULTIMO", "FECFINEVALUACION_ULTIMO", "HORFINEVALUACION_ULTIMO",
+
+    # Analista final
+    "MAT_ANALISTA_FINAL", "ORIGEN_MAT_ANALISTA",
+    "FLG_FALTA_PASO_BASE",
+
+    # Autonomía
+    "ROL_AUTONOMIA", "MAT_AUTONOMIA", "NBRPASO_AUTONOMIA",
+    "FLG_AUTONOMIA_GERENTE", "FLG_AUTONOMIA_SUPERVISOR", "FLG_AUTONOMIA_ANALISTA",
+    "FLG_AUTONOMIA_SIN_PASO_BASE",
+    "TS_AUTONOMIA",
+
+    # Malas derivadas (PowerApps)
+    "MOTIVOMALADERIVACION", "SUBMOTIVOMALADERIVACION",
+
+    # Trazabilidad estado
+    "ESTADOSOLICITUD_INICIAL",
+
+    # Control
+    "TS_ULTIMO_EVENTO"
+)
+
+# =========================
+# PERSISTENCIA
+# =========================
 df_final_solicitud.write \
     .format("delta") \
     .mode("overwrite") \
