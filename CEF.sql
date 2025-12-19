@@ -1,97 +1,139 @@
-WITH
-TP_TIPOCAMBIO AS (
-	SELECT 3.81 AS TC_USD_SOL
-),
-TP_BASESOLICITUDESSALESFORCE AS (
-	SELECT
-		A.CODMESEVALUACION_ULTIMO AS CODMESEVALUACION,
-    	A.CODSOLICITUD,
-    	(CASE
-			WHEN A.NBRDIVISA = 'USD' THEN A.MTOSOLICITADO * B.TC_USD_SOL
-			ELSE A.MTOSOLICITADO
-		END) AS MTOSOLICITADO,
-     	(CASE
-			WHEN A.NBRDIVISA = 'USD' THEN A.MTOAPROBADO * B.TC_USD_SOL
-			ELSE A.MTOAPROBADO
-		END) AS MTOAPROBADO,
-    	A.MAT_ANALISTA_FINAL AS MATRICULA,
-    	A.ESTADOSOLICITUD_ULTIMO AS ESTADOSOLICITUD,
-    	A.ESTADOSOLICITUD_PASO AS ESTADOSOLICITUDPASO,
-    	A.TIPACCION AS DESTIPPRODUCTO,
-    	A.NBRPRODUCTO AS DESPRODUCTO,
-    	A.ETAPA AS DESTIPETAPA
-	FROM CATALOG_LHCL_PROD_BCP_EXPL.BCP_EDV_RBMBDN.TP_SOLICITUDES_CENTRALIZADO A
-	CROSS JOIN TP_TIPOCAMBIO B
-),
-TP_BASESOLICITUDESAPPS AS (
-	SELECT
-		CODMES,
-		CODSOLICITUD,
-		MATANALISTA,
-		RESULTADOANALISTA,
-		PRODUCTO
-	FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_BASESOLICITUDES
-),
-TP_COLABORADOR AS (
-    SELECT
-        FECDIA,
-        date_format(FECDIA, 'yyyyMM') AS CODMES,
-        CODMATRICULA,
-        CODMATRICULASUP,
-        NBRUNIDADORGANIZATIVA,
-        NBRAREAUNIDADORGANIZATIVA,
-        NBRSERVUNIDADORGANIZATIVA,
-        (CASE
-        	WHEN NBRAREAUNIDADORGANIZATIVA IN ('AREA COMERCIAL PROVINCIAS 1', 'AREA COMERCIAL PROVINCIAS 2', 'AREA COMERCIAL LIMA 2', 'AREA COMERCIAL LIMA 1') THEN 'DCA'
-			WHEN NBRAREAUNIDADORGANIZATIVA = 'GCIA DE AREA CENTRO DE CONTACTO Y VENTAS' THEN 'TLMK'
-			WHEN NBRAREAUNIDADORGANIZATIVA = 'GCIA DE AREA BANCA AFLUENTE' AND NBRSERVUNIDADORGANIZATIVA = 'GERENCIA DE BANCA ENALTA' THEN 'ENALTA'
-			WHEN NBRAREAUNIDADORGANIZATIVA = 'GCIA DE AREA BANCA AFLUENTE' AND NBRSERVUNIDADORGANIZATIVA = 'GERENCIA DE BANCA EXCLUSIVA DIGITAL' THEN 'BEX'
-			ELSE 'OTROS'
-		END) AS CANAL
-    FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.H_COLABORADOR
-    WHERE DESTIPESTADOLABORAL = 'Activo'
-),
-TP_COLABORADORANALISTA AS (
-    SELECT
-        CODMES,
-        MATORGANICO,
-        MATSUPERIOR,
-        NBRAREAUNIDADORGANIZATIVA
-    FROM (
-        SELECT
-            CODMES,
-            CODMATRICULA      AS MATORGANICO,
-            CODMATRICULASUP   AS MATSUPERIOR,
-            NBRAREAUNIDADORGANIZATIVA,
-            ROW_NUMBER() OVER (
-                PARTITION BY CODMES, CODMATRICULA
-                ORDER BY FECDIA DESC   -- última foto del mes
-            ) AS rn
-        FROM TP_COLABORADOR
-    ) x
-    WHERE rn = 1
-),
-TP_BASE_SOLICITUDES AS (
-	SELECT
-		COALESCE(B.CODMESEVALUACION, A.CODMES) AS CODMES,
-	    COALESCE(B.CODSOLICITUD, A.CODSOLICITUD) AS CODSOLICITUD,
-	    (CASE 
-	    	WHEN COALESCE(B.ESTADOSOLICITUD, A.RESULTADOANALISTA) = 'PENDIENTE' AND B.DESTIPETAPA = 'DESESTIMADA' THEN 'RECHAZADO'
-	    	ELSE COALESCE(B.ESTADOSOLICITUD, A.RESULTADOANALISTA)
-	    END) AS ESTADOSOLICITUD,
-	    COALESCE(B.MATRICULA, A.MATANALISTA) AS MATANALISTA,
-	    COALESCE(B.DESTIPPRODUCTO, A.PRODUCTO) AS PRODUCTO,
-	    B.DESPRODUCTO,
-	    B.DESTIPETAPA,
-	    CASE 
-	        WHEN A.CODSOLICITUD IS NOT NULL AND B.CODSOLICITUD IS NOT NULL THEN 'AMBOS'
-	        WHEN B.CODSOLICITUD IS NOT NULL THEN 'SOLO_SF'
-	    END AS ORIGEN,
-	    C.NBRAREAUNIDADORGANIZATIVA,
-	    C.MATSUPERIOR
-	FROM TP_BASESOLICITUDESAPPS A
-	FULL OUTER JOIN TP_BASESOLICITUDESSALESFORCE B ON (A.CODSOLICITUD = B.CODSOLICITUD)
-	LEFT JOIN TP_COLABORADORANALISTA C ON (C.CODMES = COALESCE(A.CODMES, B.CODMESEVALUACION) AND C.MATORGANICO = COALESCE(A.MATANALISTA, B.MATRICULA))
-	WHERE B.CODSOLICITUD IS NOT NULL
-),
+import pandas as pd
+import glob, os, unicodedata
 
+pd.set_option("display.max_columns", None)
+pd.set_option("display.max_rows", None)
+pd.set_option("display.width", None)
+
+def quitar_tildes(s):
+    if isinstance(s, str):
+        return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    return s
+
+def norm_txt(s):
+    # normaliza - tildes -> strip -> upper
+    if not isinstance(s, str):
+        return s if pd.notna(s) else s
+    return quitar_tildes(s).strip().upper()
+
+
+PATH_POWERAPP = "INPUT/POWERAPP/"
+FILES = glob.glob(os.path.join(PATH_POWERAPP, "1n_Apps_2025*.csv"))
+
+df = pd.concat((pd.read_csv(f) for f in FILES), ignore_index=True)
+
+cols_selected = [
+    'Title', 'FechaAsignacion', 'Tipo de Producto', 'ResultadoAnalista',
+    'Mail', 'Motivo Resultado Analista', 'AñoMes', 'Created',
+    'Motivo_MD', 'Submotivo_MD'
+]
+tp_powerapp = df[cols_selected].rename(columns={
+    'Title': 'CODSOLICITUD',
+    'FechaAsignacion': 'FECASIGNACION',
+    'Tipo de Producto': 'PRODUCTO',
+    'ResultadoAnalista': 'RESULTADOANALISTA',
+    'Mail': 'CORREO',
+    'Motivo Resultado Analista': 'MOTIVORESULTADOANALISTA',
+    'AñoMes': 'CODMES',
+    'Created': 'CREATED',
+    'Motivo_MD': 'MOTIVOMALADERIVACION',
+    'Submotivo_MD': 'SUBMOTIVOMALADERIVACION'
+})
+
+
+tp_powerapp["FECASIGNACION"] = pd.to_datetime(tp_powerapp["FECASIGNACION"], errors="coerce", dayfirst=True)
+
+
+tp_powerapp = tp_powerapp.sort_values(by='FECASIGNACION', ascending=False)
+
+
+tp_powerapp_clean = tp_powerapp.drop_duplicates(subset=['CODSOLICITUD'], keep='first')
+
+
+# Normalizacion de texto
+cols_norm = [
+    'PRODUCTO', 'RESULTADOANALISTA',
+    'MOTIVORESULTADOANALISTA', 'MOTIVOMALADERIVACION', 'SUBMOTIVOMALADERIVACION'
+]
+for col in cols_norm:
+    tp_powerapp_clean.loc[:, col] = tp_powerapp_clean[col].apply(norm_txt)
+
+tp_powerapp_clean.loc[:, "RESULTADOANALISTA"] = tp_powerapp_clean["RESULTADOANALISTA"].replace({
+    "DENEGADO POR ANALISTA DE CREDITO": "DENEGADO",
+    "APROBADO POR ANALISTA DE CREDITO": "APROBADO",
+    "DEVOLVER AL GESTOR": "DEVUELTO AL GESTOR"
+})
+
+
+tp_powerapp_clean = tp_powerapp_clean.copy()
+
+
+# Fechas/horas (UTC -> America/Lima)
+created_lima = (
+    pd.to_datetime(tp_powerapp_clean["CREATED"], utc=True, errors="coerce")
+      .dt.tz_convert("America/Lima")
+      .dt.floor("min")
+)
+
+tp_powerapp_clean.loc[:, "FECCREACION"] = created_lima.dt.date
+tp_powerapp_clean.loc[:, "HORACREACION"]  = created_lima.dt.time
+tp_powerapp_clean.loc[:, "FECHORACREACION"] = created_lima.dt.tz_localize(None)
+
+
+tp_powerapp_clean["FECASIGNACION"] = pd.to_datetime(
+    tp_powerapp_clean["FECASIGNACION"].astype(str),
+    dayfirst=True,
+    errors="coerce"
+)
+
+
+df_organico = df_organico[df_organico['CORREO'] != '-']
+
+
+correos_mes = tp_powerapp_clean[['CORREO', 'CODMES']]
+
+df_merge = pd.merge(
+    tp_powerapp_clean[['CODMES','CORREO']],
+    df_organico[['CODMES','CORREO','MATORGANICO','FECINGRESO']],
+    on=['CODMES','CORREO'],
+    how='inner'
+)
+
+df_merge = df_merge.sort_values('FECINGRESO', ascending=False)
+df_unique = df_merge.drop_duplicates(subset=['CODMES','CORREO'])
+
+
+df_final = df_unique[['CODMES','MATORGANICO','CORREO']]
+
+
+tp_powerapp_clean = pd.merge(
+    tp_powerapp_clean,
+    df_final.rename(columns={'MATORGANICO':'MATANALISTA'}),
+    on=['CODMES','CORREO'],
+    how='left'
+)
+
+
+columnas = ["CODMES", "CODSOLICITUD", "FECHORACREACION", "FECCREACION", "HORACREACION", "MATANALISTA", 
+            "FECASIGNACION", "PRODUCTO", "RESULTADOANALISTA", "MOTIVORESULTADOANALISTA", "MOTIVOMALADERIVACION", "SUBMOTIVOMALADERIVACION"]
+
+tp_powerapp = tp_powerapp_clean[columnas]
+
+
+df_powerapp = tp_powerapp.drop_duplicates()
+
+df_powerapp.to_csv(
+    "OUTPUT/POWERAPP_EDV.csv", index=False, encoding="utf-8-sig", sep=';'
+)
+
+
+
+
+
+
+En mi proceso que lo tenía en local de jupyter notebook lo preprocesaba de esta forma
+El organico es lo que ya tenemos, incluso el mismo campo correo
+
+El ruta donde estarn todos los archivos PATH_PA_SOLICITUDES = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/POWERAPPS/BASESOLICITUDES/1n_Apps_*.csv"
+
+Entonces en el mismo pipeline creemos una sección para procesar esto y luego hacerle el join 
