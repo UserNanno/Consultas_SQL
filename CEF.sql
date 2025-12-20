@@ -7,8 +7,13 @@ from typing import Dict, Any, List, Optional
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
+
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
+
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from selenium.webdriver.edge.service import Service as EdgeService
+
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
@@ -20,8 +25,9 @@ from selenium.common.exceptions import TimeoutException, StaleElementReferenceEx
 URL_SUNAT = "https://e-consultaruc.sunat.gob.pe/cl-ti-itmrconsruc/FrameCriterioBusquedaWeb.jsp"
 URL_SBS = "https://servicios.sbs.gob.pe/ReporteSituacionPrevisional/Afil_Consulta.aspx"
 
-# ✅ Ajusta a tu ruta real del chromedriver.exe
+# ✅ Ajusta rutas a tus drivers
 CHROMEDRIVER_PATH = r"D:\Datos de Usuarios\T72496\Downloads\chromedriver-win64\chromedriver-win64\chromedriver.exe"
+MSEDGEDRIVER_PATH = r"D:\Datos de Usuarios\T72496\Downloads\edgedriver_win64\msedgedriver.exe"
 
 
 # =========================
@@ -39,12 +45,10 @@ def type_like_human(el, text: str, min_delay: float = 0.03, max_delay: float = 0
 
 
 # =========================
-# Selenium driver
+# Drivers (2 navegadores)
 # =========================
-def build_driver(headless: bool = False, show_window: bool = True) -> webdriver.Chrome:
-    opts = Options()
-
-    # rendimiento
+def build_chrome_driver(show_window: bool = True) -> webdriver.Chrome:
+    opts = ChromeOptions()
     opts.add_argument("--disable-gpu")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
@@ -54,19 +58,37 @@ def build_driver(headless: bool = False, show_window: bool = True) -> webdriver.
     opts.add_argument("--blink-settings=imagesEnabled=false")
     opts.add_argument("--window-size=1200,800")
 
-    if not show_window and not headless:
-        # ventana fuera de pantalla (oculta)
+    if not show_window:
         opts.add_argument("--window-position=-32000,-32000")
 
-    if headless:
-        # OJO: SUNAT/SBS pueden bloquear headless
-        opts.add_argument("--headless=new")
-
-    # Selenium 4: capability
+    # Selenium 4 capability
     opts.set_capability("pageLoadStrategy", "eager")
 
-    service = Service(executable_path=CHROMEDRIVER_PATH)
+    service = ChromeService(executable_path=CHROMEDRIVER_PATH)
     driver = webdriver.Chrome(service=service, options=opts)
+    driver.set_page_load_timeout(25)
+    driver.set_script_timeout(25)
+    return driver
+
+
+def build_edge_driver(show_window: bool = True) -> webdriver.Edge:
+    opts = EdgeOptions()
+    opts.add_argument("--disable-gpu")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-extensions")
+    opts.add_argument("--disable-notifications")
+    opts.add_argument("--disable-popup-blocking")
+    opts.add_argument("--window-size=1200,800")
+
+    if not show_window:
+        opts.add_argument("--window-position=-32000,-32000")
+
+    # Selenium 4 capability
+    opts.set_capability("pageLoadStrategy", "eager")
+
+    service = EdgeService(executable_path=MSEDGEDRIVER_PATH)
+    driver = webdriver.Edge(service=service, options=opts)
     driver.set_page_load_timeout(25)
     driver.set_script_timeout(25)
     return driver
@@ -81,7 +103,6 @@ def _clean_label(s: str) -> str:
 
 
 def _extract_value(cell) -> str:
-    # tablas
     if cell.find_elements(By.CSS_SELECTOR, "table"):
         rows: List[str] = []
         for td in cell.find_elements(By.CSS_SELECTOR, "table tr td"):
@@ -90,13 +111,11 @@ def _extract_value(cell) -> str:
                 rows.append(t)
         return "\n".join(rows).strip() if rows else "-"
 
-    # p
     ps = cell.find_elements(By.CSS_SELECTOR, "p")
     if ps:
         t = " ".join(p.text.strip() for p in ps if p.text.strip())
         return t if t else "-"
 
-    # h4
     h4s = cell.find_elements(By.CSS_SELECTOR, "h4")
     if h4s:
         t = " ".join(h.text.strip() for h in h4s if h.text.strip())
@@ -108,13 +127,14 @@ def _extract_value(cell) -> str:
 
 def parse_panel_sunat(panel) -> Dict[str, Any]:
     data: Dict[str, Any] = {}
-
     items = panel.find_elements(By.CSS_SELECTOR, "div.list-group > div.list-group-item")
+
     for item in items:
         cols = item.find_elements(By.CSS_SELECTOR, ".row > div")
         if not cols:
             continue
 
+        # label/valor por pares
         i = 0
         while i < len(cols) - 1:
             col_label = cols[i]
@@ -160,7 +180,6 @@ def parse_panel_sunat_with_retry(driver: webdriver.Chrome, tries: int = 4) -> Di
 
 def extraer_dni_y_nombres(tipo_documento_text: str) -> Dict[str, str]:
     """
-    Ej:
     "DNI 78801600 - CANECILLAS CONTRERAS, JUAN MARIANO"
     """
     s = (tipo_documento_text or "").strip()
@@ -237,17 +256,17 @@ def consultar_sunat(driver: webdriver.Chrome, wait: WebDriverWait, ruc: str) -> 
 
 
 # =========================
-# SBS / AFP (ASISTIDO)
+# SBS / AFP (ASISTIDO por reCAPTCHA invisible)
 # =========================
 def consultar_sbs_afp_asistido(
-    driver: webdriver.Chrome,
+    driver: webdriver.Edge,
     wait: WebDriverWait,
     dni: str,
     apellido_paterno: str,
     apellido_materno: str,
     primer_nombre: str,
     segundo_nombre: str = "",
-    timeout_resultado: int = 180,   # hasta 3 min para generar resultado
+    timeout_resultado: int = 180,
 ) -> Dict[str, Any]:
     driver.get(URL_SBS)
 
@@ -274,20 +293,19 @@ def consultar_sbs_afp_asistido(
 
     btn = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnBuscar")
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
-    human_pause(0.6, 1.2)
 
-    print("\n[SBS] Ya se llenaron los datos.")
-    print("[SBS] Ahora haz CLICK en 'Buscar' en el navegador (reCAPTCHA es invisible).")
-    print("[SBS] Cuando veas que cargó el resultado (o si aparece un mensaje), presiona ENTER aquí.\n")
+    print("\n[SBS - EDGE] Ya se llenaron los datos.")
+    print("[SBS - EDGE] Ahora haz CLICK en 'Buscar' en Edge (reCAPTCHA es invisible).")
+    print("[SBS - EDGE] Cuando veas que cargó el resultado (o si aparece un mensaje), presiona ENTER aquí.\n")
     input()
 
-    # Esperar resultado o detectar mensaje de sospecha
     end_time = time.time() + timeout_resultado
     while time.time() < end_time:
         if driver.find_elements(By.ID, "ctl00_ContentPlaceHolder1_pnlConfirmar"):
             break
+        # mensaje típico cuando reCAPTCHA no valida / sospechoso
         if "sospechosa" in (driver.page_source or "").lower():
-            return {"dni": dni, "error": "SBS bloqueó la consulta ('consulta sospechosa')."}
+            return {"dni": dni, "error": "SBS bloqueó la consulta ('consulta sospechosa' / reCAPTCHA no validó)."}
         time.sleep(0.5)
 
     if not driver.find_elements(By.ID, "ctl00_ContentPlaceHolder1_pnlConfirmar"):
@@ -313,54 +331,56 @@ def consultar_sbs_afp_asistido(
 
 
 # =========================
-# Orquestación: SUNAT + SBS
+# Orquestación: Chrome(SUNAT) -> Edge(SBS)
 # =========================
-def consulta_completa(ruc: str, headless: bool = False, show_window: bool = True) -> Dict[str, Any]:
-    driver = build_driver(headless=headless, show_window=show_window)
-    wait = WebDriverWait(driver, 30)
+def consulta_completa_dos_navegadores(ruc: str) -> Dict[str, Any]:
+    salida: Dict[str, Any] = {"SUNAT": {}, "AFP": {}}
 
+    # 1) SUNAT en Chrome
+    chrome = build_chrome_driver(show_window=True)
+    wait_chrome = WebDriverWait(chrome, 30)
     try:
-        salida: Dict[str, Any] = {"SUNAT": {}, "AFP": {}}
+        sunat = consultar_sunat(chrome, wait_chrome, ruc)
+        salida["SUNAT"] = {"RESULTADOS": sunat}
+    except Exception as e:
+        salida["SUNAT"] = {"ERROR": f"{type(e).__name__}: {e}"}
+        chrome.quit()
+        return salida
+    finally:
+        chrome.quit()
 
-        # SUNAT
-        try:
-            sunat = consultar_sunat(driver, wait, ruc)
-            salida["SUNAT"] = {"RESULTADOS": sunat}
-        except Exception as e:
-            salida["SUNAT"] = {"ERROR": f"{type(e).__name__}: {e}"}
-            return salida
+    persona = (salida["SUNAT"].get("RESULTADOS") or {}).get("datos_persona", {}) or {}
+    dni = persona.get("dni", "")
+    ap_pat = persona.get("apellido_paterno", "")
+    ap_mat = persona.get("apellido_materno", "")
+    pri_nom = persona.get("primer_nombre", "")
+    seg_nom = persona.get("segundo_nombre", "")
 
-        # SBS / AFP (asistido por reCAPTCHA)
-        persona = sunat.get("datos_persona", {}) or {}
-        dni = persona.get("dni", "")
-        ap_pat = persona.get("apellido_paterno", "")
-        ap_mat = persona.get("apellido_materno", "")
-        pri_nom = persona.get("primer_nombre", "")
-        seg_nom = persona.get("segundo_nombre", "")
+    if not dni or not ap_pat or not pri_nom:
+        salida["AFP"] = {"ERROR": "No se pudo extraer DNI/nombres desde SUNAT (Tipo de Documento)."}
+        return salida
 
-        if not dni or not ap_pat or not pri_nom:
-            salida["AFP"] = {"ERROR": "No se pudo extraer DNI/nombres desde SUNAT (Tipo de Documento)."}
-            return salida
+    # pausa antes de abrir SBS
+    human_pause(2.0, 4.0)
 
-        # pausa antes de SBS
-        human_pause(2.0, 4.0)
-
-        afp = consultar_sbs_afp_asistido(driver, wait, dni, ap_pat, ap_mat, pri_nom, seg_nom)
+    # 2) SBS en Edge (sesión separada)
+    edge = build_edge_driver(show_window=True)
+    wait_edge = WebDriverWait(edge, 30)
+    try:
+        afp = consultar_sbs_afp_asistido(edge, wait_edge, dni, ap_pat, ap_mat, pri_nom, seg_nom)
         if "error" in afp:
             salida["AFP"] = {"ERROR": afp["error"], "DEBUG": afp}
         else:
             salida["AFP"] = {"RESULTADOS": afp}
-
-        return salida
     finally:
-        driver.quit()
+        edge.quit()
+
+    return salida
 
 
 if __name__ == "__main__":
     ruc = "10788016005"
-
-    # ✅ Visible y sin headless para que puedas operar SBS si es necesario
-    resultado = consulta_completa(ruc, headless=False, show_window=True)
+    resultado = consulta_completa_dos_navegadores(ruc)
 
     print("\nSUNAT\n")
     for k, v in resultado.get("SUNAT", {}).items():
