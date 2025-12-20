@@ -4,10 +4,11 @@ import os
 import re
 import time
 import random
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -26,8 +27,7 @@ URL_SBS = "https://servicios.sbs.gob.pe/ReporteSituacionPrevisional/Afil_Consult
 # ✅ Ajusta ruta a tu chromedriver.exe
 CHROMEDRIVER_PATH = r"D:\Datos de Usuarios\T72496\Downloads\chromedriver-win64\chromedriver-win64\chromedriver.exe"
 
-# ✅ Perfiles separados (carpetas que se crearán si no existen)
-#    IMPORTANTE: no uses tu perfil real de Chrome. Usa perfiles “selenium”.
+# ✅ Perfiles separados (se crean solos)
 PROFILE_SUNAT_DIR = r"D:\selenium_profiles\sunat"
 PROFILE_SBS_DIR = r"D:\selenium_profiles\sbs"
 
@@ -46,6 +46,11 @@ def type_like_human(el, text: str, min_delay: float = 0.03, max_delay: float = 0
         time.sleep(random.uniform(min_delay, max_delay))
 
 
+def is_suspicious_page(driver: webdriver.Chrome) -> bool:
+    src = (driver.page_source or "").lower()
+    return "sospechosa" in src or "consulta es sospechosa" in src
+
+
 # =========================
 # Chrome driver (con perfil)
 # =========================
@@ -62,15 +67,13 @@ def build_chrome_driver(user_data_dir: str, show_window: bool = True) -> webdriv
     opts.add_argument("--blink-settings=imagesEnabled=false")
     opts.add_argument("--window-size=1200,800")
 
-    # Perfil separado
+    # perfil separado
     opts.add_argument(f"--user-data-dir={user_data_dir}")
-    # opcional: mantener un nombre de perfil dentro del user-data-dir
     opts.add_argument("--profile-directory=Default")
 
     if not show_window:
         opts.add_argument("--window-position=-32000,-32000")
 
-    # Selenium 4
     opts.set_capability("pageLoadStrategy", "eager")
 
     service = ChromeService(executable_path=CHROMEDRIVER_PATH)
@@ -120,7 +123,6 @@ def parse_panel_sunat(panel) -> Dict[str, Any]:
         if not cols:
             continue
 
-        # label/valor por pares
         i = 0
         while i < len(cols) - 1:
             col_label = cols[i]
@@ -165,9 +167,6 @@ def parse_panel_sunat_with_retry(driver: webdriver.Chrome, tries: int = 4) -> Di
 
 
 def extraer_dni_y_nombres(tipo_documento_text: str) -> Dict[str, str]:
-    """
-    Ej: "DNI 78801600 - CANECILLAS CONTRERAS, JUAN MARIANO"
-    """
     s = (tipo_documento_text or "").strip()
 
     m = re.search(r"\bDNI\s*([0-9]{8})\b", s)
@@ -230,6 +229,7 @@ def consultar_sunat(driver: webdriver.Chrome, wait: WebDriverWait, ruc: str) -> 
     tipo_doc = data.get("Tipo de Documento", "")
     if isinstance(tipo_doc, list):
         tipo_doc = tipo_doc[0] if tipo_doc else ""
+
     data["datos_persona"] = extraer_dni_y_nombres(tipo_doc) if tipo_doc else {
         "dni": "",
         "apellido_paterno": "",
@@ -237,13 +237,38 @@ def consultar_sunat(driver: webdriver.Chrome, wait: WebDriverWait, ruc: str) -> 
         "primer_nombre": "",
         "segundo_nombre": "",
     }
+
     return data
 
 
 # =========================
-# SBS (ASISTIDO)
+# SBS (AUTO “ENTER” 3 veces) + NO CERRAR si sospechosa
 # =========================
-def consultar_sbs_afp_asistido(
+def _try_submit_sbs(driver: webdriver.Chrome) -> None:
+    """
+    Intenta disparar la búsqueda.
+    Usamos: ENTER en un input + click al botón.
+    """
+    # ENTER sobre el input DNI
+    try:
+        el = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_txtNumeroDoc")
+        el.send_keys(Keys.ENTER)
+    except Exception:
+        pass
+
+    human_pause(0.3, 0.8)
+
+    # Click al botón Buscar
+    try:
+        btn = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnBuscar")
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+        human_pause(0.2, 0.6)
+        btn.click()
+    except Exception:
+        pass
+
+
+def consultar_sbs_afp_auto_3intentos(
     driver: webdriver.Chrome,
     wait: WebDriverWait,
     dni: str,
@@ -251,10 +276,16 @@ def consultar_sbs_afp_asistido(
     apellido_materno: str,
     primer_nombre: str,
     segundo_nombre: str = "",
-    timeout_resultado: int = 180,
-) -> Dict[str, Any]:
+    intentos: int = 3,
+) -> Tuple[Dict[str, Any], str]:
+    """
+    Devuelve (resultado, status)
+    status:
+      - "ok" -> obtuvo pnlConfirmar
+      - "suspicious" -> apareció 'consulta sospechosa'
+      - "timeout" -> no hubo resultado
+    """
     driver.get(URL_SBS)
-
     wait.until(EC.presence_of_element_located((By.ID, "ctl00_ContentPlaceHolder1_txtNumeroDoc")))
     human_pause(1.0, 2.0)
 
@@ -276,52 +307,56 @@ def consultar_sbs_afp_asistido(
         type_like_human(el_seg, segundo_nombre)
         human_pause(0.4, 1.0)
 
-    btn = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnBuscar")
-    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
-    human_pause(0.6, 1.2)
+    # Intentar enviar (ENTER/click) 3 veces
+    for intento in range(1, intentos + 1):
+        print(f"[SBS] Intento {intento}/{intentos}: enviando búsqueda (ENTER + click)...")
+        _try_submit_sbs(driver)
 
-    print("\n[SBS - CHROME] Ya se llenaron los datos.")
-    print("[SBS - CHROME] Ahora haz CLICK en 'Buscar' (reCAPTCHA es invisible).")
-    print("[SBS - CHROME] Cuando veas el resultado (o un mensaje), presiona ENTER aquí.\n")
-    input()
+        # Esperar un rato a ver si aparece resultado o sospechosa
+        end = time.time() + 12  # ventana de espera por intento
+        while time.time() < end:
+            if driver.find_elements(By.ID, "ctl00_ContentPlaceHolder1_pnlConfirmar"):
+                # éxito
+                def safe_text(sel_id: str) -> str:
+                    try:
+                        return driver.find_element(By.ID, sel_id).text.strip()
+                    except Exception:
+                        return ""
 
-    end_time = time.time() + timeout_resultado
-    while time.time() < end_time:
-        if driver.find_elements(By.ID, "ctl00_ContentPlaceHolder1_pnlConfirmar"):
-            break
-        if "sospechosa" in (driver.page_source or "").lower():
-            return {"dni": dni, "error": "SBS bloqueó la consulta ('consulta sospechosa' / reCAPTCHA no validó)."}
-        time.sleep(0.5)
+                data = {
+                    "dni": dni,
+                    "info_al": safe_text("ctl00_ContentPlaceHolder1_lblFechaReg"),
+                    "afiliado_desde": safe_text("ctl00_ContentPlaceHolder1_lblFec_ing"),
+                    "afp_actual": safe_text("ctl00_ContentPlaceHolder1_lblAfp_act"),
+                    "codigo_spp": safe_text("ctl00_ContentPlaceHolder1_lblCod_afi"),
+                    "situacion": safe_text("ctl00_ContentPlaceHolder1_lblSituacion"),
+                    "devengue_ultimo_aporte": safe_text("ctl00_ContentPlaceHolder1_lblFec_dev"),
+                    "detalle_situacion": safe_text("ctl00_ContentPlaceHolder1_TxtBoxSit_Det"),
+                    "detalle_aportes_obligatorios": safe_text("ctl00_ContentPlaceHolder1_TxtBoxApor_Obl"),
+                }
+                return data, "ok"
 
-    if not driver.find_elements(By.ID, "ctl00_ContentPlaceHolder1_pnlConfirmar"):
-        return {"dni": dni, "error": "No apareció el panel de resultados (pnlConfirmar) en el tiempo esperado."}
+            if is_suspicious_page(driver):
+                return {
+                    "dni": dni,
+                    "error": "SBS bloqueó la consulta: 'la consulta es sospechosa' (reCAPTCHA/anti-abuso).",
+                }, "suspicious"
 
-    def safe_text(sel_id: str) -> str:
-        try:
-            return driver.find_element(By.ID, sel_id).text.strip()
-        except Exception:
-            return ""
+            time.sleep(0.5)
 
-    return {
-        "dni": dni,
-        "info_al": safe_text("ctl00_ContentPlaceHolder1_lblFechaReg"),
-        "afiliado_desde": safe_text("ctl00_ContentPlaceHolder1_lblFec_ing"),
-        "afp_actual": safe_text("ctl00_ContentPlaceHolder1_lblAfp_act"),
-        "codigo_spp": safe_text("ctl00_ContentPlaceHolder1_lblCod_afi"),
-        "situacion": safe_text("ctl00_ContentPlaceHolder1_lblSituacion"),
-        "devengue_ultimo_aporte": safe_text("ctl00_ContentPlaceHolder1_lblFec_dev"),
-        "detalle_situacion": safe_text("ctl00_ContentPlaceHolder1_TxtBoxSit_Det"),
-        "detalle_aportes_obligatorios": safe_text("ctl00_ContentPlaceHolder1_TxtBoxApor_Obl"),
-    }
+        # pequeña pausa entre intentos
+        human_pause(1.5, 3.0)
+
+    return {"dni": dni, "error": "No apareció el panel de resultados (pnlConfirmar) luego de 3 intentos."}, "timeout"
 
 
 # =========================
-# Orquestación: Chrome(SUNAT) -> Chrome(SBS) (2 perfiles)
+# Orquestación
 # =========================
 def consulta_completa_dos_chromes(ruc: str, show_windows: bool = True) -> Dict[str, Any]:
     salida: Dict[str, Any] = {"SUNAT": {}, "AFP": {}}
 
-    # 1) SUNAT en Chrome (perfil SUNAT)
+    # 1) SUNAT
     chrome1 = build_chrome_driver(user_data_dir=PROFILE_SUNAT_DIR, show_window=show_windows)
     wait1 = WebDriverWait(chrome1, 30)
     try:
@@ -345,22 +380,45 @@ def consulta_completa_dos_chromes(ruc: str, show_windows: bool = True) -> Dict[s
         salida["AFP"] = {"ERROR": "No se pudo extraer DNI/nombres desde SUNAT (Tipo de Documento)."}
         return salida
 
-    # Pausa entre sitios
     human_pause(2.0, 4.0)
 
-    # 2) SBS en Chrome (perfil SBS independiente)
+    # 2) SBS (mismo Chrome pero otro perfil)
     chrome2 = build_chrome_driver(user_data_dir=PROFILE_SBS_DIR, show_window=show_windows)
     wait2 = WebDriverWait(chrome2, 30)
-    try:
-        afp = consultar_sbs_afp_asistido(chrome2, wait2, dni, ap_pat, ap_mat, pri_nom, seg_nom)
-        if "error" in afp:
-            salida["AFP"] = {"ERROR": afp["error"], "DEBUG": afp}
-        else:
-            salida["AFP"] = {"RESULTADOS": afp}
-    finally:
-        chrome2.quit()
 
-    return salida
+    # OJO: aquí NO hacemos finally quit() siempre, porque el usuario pidió
+    # "no cierres si sale el mensaje"
+    try:
+        afp, status = consultar_sbs_afp_auto_3intentos(chrome2, wait2, dni, ap_pat, ap_mat, pri_nom, seg_nom, intentos=3)
+
+        if status == "ok":
+            salida["AFP"] = {"RESULTADOS": afp}
+            chrome2.quit()
+            return salida
+
+        if status == "suspicious":
+            salida["AFP"] = {"ERROR": afp.get("error", "Consulta sospechosa"), "DEBUG": afp}
+            print("\n[SBS] Se detectó 'consulta sospechosa'. No cerraré el navegador para que lo revises.")
+            print("[SBS] Cierra Chrome manualmente cuando termines, y luego presiona ENTER aquí para finalizar.\n")
+            input()
+            try:
+                chrome2.quit()
+            except Exception:
+                pass
+            return salida
+
+        # timeout
+        salida["AFP"] = {"ERROR": afp.get("error", "Timeout SBS"), "DEBUG": afp}
+        chrome2.quit()
+        return salida
+
+    except Exception as e:
+        salida["AFP"] = {"ERROR": f"{type(e).__name__}: {e}"}
+        try:
+            chrome2.quit()
+        except Exception:
+            pass
+        return salida
 
 
 if __name__ == "__main__":
