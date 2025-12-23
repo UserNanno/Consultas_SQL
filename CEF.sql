@@ -1,28 +1,33 @@
-https://github.com/UB-Mannheim/tesseract/wiki
+pip install easyocr pillow
 
-from PIL import Image, ImageOps
-import pytesseract
+
+import easyocr
+from PIL import Image
 import re
 
-# Ajusta esta ruta si tu tesseract.exe está en otro lado
-pytesseract.pytesseract.tesseract_cmd = r"D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\Helpers\tesseract.exe"
+# Inicializar OCR
+reader = easyocr.Reader(['en'], gpu=False)
 
-img_path = "captura.png"   # tu imagen guardada
+# Cargar imagen
+img = Image.open("captura.png")
 
-img = Image.open(img_path)
+# Leer texto (optimizado para códigos cortos)
+result = reader.readtext(
+    img,
+    detail=0,
+    allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+)
 
-# Preproceso simple: escala de grises + umbral
-gray = ImageOps.grayscale(img)
-bw = gray.point(lambda x: 255 if x > 160 else 0, mode="1")  # mueve 160 según tu imagen
+if result:
+    # Tomar el texto más probable
+    text = result[0]
 
-# Config: asume una sola línea/palabra, y limita caracteres
-config = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    # Limpiar espacios y saltos
+    text = re.sub(r'\s+', '', text)
 
-text = pytesseract.image_to_string(bw, config=config).strip()
+    # Forzar máximo 4 caracteres
+    text = text[:4]
 
-# Limpieza (por si mete espacios/saltos)
-text = re.sub(r"\s+", "", text)
-
-print("OCR:", text)
-
-
+    print("OCR:", text)
+else:
+    print("No se detectó texto")
