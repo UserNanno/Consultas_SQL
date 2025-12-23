@@ -5,7 +5,7 @@ import pytesseract
 import re
 
 # Ajusta esta ruta si tu tesseract.exe está en otro lado
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+pytesseract.pytesseract.tesseract_cmd = r"D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\Helpers\tesseract.exe"
 
 img_path = "captura.png"   # tu imagen guardada
 
@@ -24,4 +24,5 @@ text = pytesseract.image_to_string(bw, config=config).strip()
 text = re.sub(r"\s+", "", text)
 
 print("OCR:", text)
+
 
