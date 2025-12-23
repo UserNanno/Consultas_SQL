@@ -68,3 +68,8 @@ df_final = df_final.select(
     "MTODESEMBOLSADO",
     "TS_PRODUCTOS",
 )
+
+
+# Solicitudes que NO tienen estados (debería dar 0)
+df_final.filter(F.col("CODMESEVALUACION").isNull()).count()
+
