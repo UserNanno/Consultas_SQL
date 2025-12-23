@@ -91,3 +91,47 @@ if __name__ == "__main__":
         input("ENTER para cerrar...")
     finally:
         driver.quit()
+
+
+
+
+
+
+
+
+
+
+
+
+pip install pytesseract pillow
+
+
+
+
+from PIL import Image
+import pytesseract
+
+# si estás en Windows, probablemente necesites:
+# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+img = Image.open("imagen.png")
+
+texto = pytesseract.image_to_string(
+    img,
+    config="--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+)
+
+print(texto.strip())
+
+
+
+
+
+
+
+import cv2
+
+img = cv2.imread("imagen.png", 0)
+_, img = cv2.threshold(img, 150, 255, cv2.THRESH_BINARY)
+cv2.imwrite("proc.png", img)
+
