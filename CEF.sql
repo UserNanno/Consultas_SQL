@@ -1,35 +1,55 @@
-Cuando se ejecutó esto
-# 1) STAGING
-df_org = load_organico(spark, BASE_DIR_ORGANICO)
-df_org_tokens = build_org_tokens(df_org)
-df_estados = load_sf_estados(spark, PATH_SF_ESTADOS)
-df_productos = load_sf_productos_validos(spark, PATH_SF_PRODUCTOS)
-df_apps = load_powerapps(spark, PATH_PA_SOLICITUDES)
-# 2) ENRIQUECIMIENTO CON ORGANICO
-df_estados_enriq = enrich_estados_con_organico(df_estados, df_org_tokens)
-df_productos_enriq = enrich_productos_con_organico(df_productos, df_org_tokens)
+from pyspark.sql import functions as F
 
-Hice lo siguiente
-
-display(df_estados_enriq[df_estados_enriq["CODSOLICITUD"]== "O0018169329"])
-
-aca me sale en el primer registro:
-
-NBRULTACTOR -> LESLY
-NBRULTACTORPASO -> LESLY
-MATORGANICO -> S18795 (MATRICULA DE SUPERVISORA DE LESLY)
-MATSUPERIOR -> U17293 (MATRICULA DEL GERENTE)
-MATORGANICOPASO -> S18795
-MATSUPERIORPASO -> U17293
-
-en el segundo registro me sale
-
-NBRULTACTOR -> EVELYN (sUPERVISOR)
-NBRULTACTORPASO -> LESLY
-MATORGANICO -> S18795 (MATRICULA DE SUPERVISORA DE LESLY)
-MATSUPERIOR -> U17293 (MATRICULA DEL GERENTE)
-MATORGANICOPASO -> S18795
-MATSUPERIORPASO -> U17293
+df_estados = df_estados.withColumn(
+    "ROW_ID",
+    F.sha2(
+        F.concat_ws("||",
+            F.col("CODSOLICITUD").cast("string"),
+            F.col("CODMESEVALUACION").cast("string"),
+            F.col("NBRPASO").cast("string"),
+            F.col("FECHORINICIOEVALUACION").cast("string"),
+            F.col("FECHORFINEVALUACION").cast("string"),
+            F.col("NBRULTACTOR").cast("string"),
+            F.col("NBRULTACTORPASO").cast("string"),
+        ),
+        256
+    )
+)
 
 
-EL PROBLEMA ES ACÁ QUE NO PEGA BIEN SU MATRÍCULA DEL ANALISTA. POR QUÉ PASA ESO? 
+
+df_best_match_ultactor = match_persona_vs_organico_row(
+    df_org_tokens=df_org_tokens,
+    df_sf=df_estados,                    # ya trae ROW_ID
+    row_id_col="ROW_ID",
+    codmes_sf_col="CODMESEVALUACION",
+    nombre_sf_col="NBRULTACTOR"
+)
+
+df_best_match_paso = match_persona_vs_organico_row(
+    df_org_tokens=df_org_tokens,
+    df_sf=df_estados,
+    row_id_col="ROW_ID",
+    codmes_sf_col="CODMESEVALUACION",
+    nombre_sf_col="NBRULTACTORPASO"
+)
+
+df_estados_enriq = (
+    df_estados
+      .join(
+          df_best_match_ultactor.select(
+              "ROW_ID",
+              F.col("MATORGANICO").alias("MAT_ULTACTOR"),
+              F.col("MATSUPERIOR").alias("MAT_SUP_ULTACTOR"),
+          ),
+          on="ROW_ID", how="left"
+      )
+      .join(
+          df_best_match_paso.select(
+              "ROW_ID",
+              F.col("MATORGANICO").alias("MAT_ULTACTORPASO"),
+              F.col("MATSUPERIOR").alias("MAT_SUP_ULTACTORPASO"),
+          ),
+          on="ROW_ID", how="left"
+      )
+)
