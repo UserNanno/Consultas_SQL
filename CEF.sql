@@ -1,26 +1,23 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-import time
+https://github.com/UB-Mannheim/tesseract/wiki
 
-CHROMEDRIVER_PATH = r"D:\Datos de Usuarios\T72496\Downloads\chromedriver-win64\chromedriver-win64\chromedriver.exe"
+pip install pytesseract opencv-python pillow
 
-options = Options()
-options.add_argument("--start-maximized")
 
-service = Service(CHROMEDRIVER_PATH)
-driver = webdriver.Chrome(service=service, options=options)
+import pytesseract
+import cv2
 
-driver.get("https://tu-pagina.com")
+# ⚠️ Solo si NO lo agregaste al PATH
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-# Espera a que cargue el elemento
-time.sleep(2)  # simple y efectivo
-element = driver.find_element(By.ID, "test")
+# Leer imagen en blanco y negro
+img = cv2.imread("captura.png", cv2.IMREAD_GRAYSCALE)
 
-# Captura SOLO el elemento
-element.screenshot("captura.png")
+# Mejorar contraste
+_, img = cv2.threshold(img, 150, 255, cv2.THRESH_BINARY)
 
-print("Captura guardada como captura.png")
+# Configuración OCR (una sola línea, pocos caracteres)
+config = "--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-driver.quit()
+texto = pytesseract.image_to_string(img, config=config)
+
+print(texto.strip())
