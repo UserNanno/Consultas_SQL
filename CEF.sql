@@ -1,17 +1,93 @@
-La pagina es esta
+import os
+import time
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-  https://extranet.sbs.gob.pe/app/login.jsp
+URL_LOGIN = "https://extranet.sbs.gob.pe/app/login.jsp"
 
-  el usuario va aca
+def human_pause(a=0.2, b=0.7):
+    import random, time
+    time.sleep(random.uniform(a, b))
 
-<input id="c_c_usuario" type="text" name="c_c_usuario" value="" class="WEB_zonaIngresoInput watermark" maxlength="16" title="Ingrese su usuario">
+def type_like_human(el, text: str, min_delay: float = 0.03, max_delay: float = 0.10) -> None:
+    import random, time
+    el.clear()
+    for ch in text:
+        el.send_keys(ch)
+        time.sleep(random.uniform(min_delay, max_delay))
 
-para la contraseña se ingresa aca
-<input type="text" id="txtClavePlana" value="Ingrese su clave" class="WEB_zonaIngresoInput2">
-pero se utilizan estos botones
+def clear_keypad_if_possible(driver):
+    # 1) intentar click en el LI "limpiar"
+    try:
+        limpiar = driver.find_element(By.CSS_SELECTOR, "#ulKeypad li.WEB_zonaIngresobtnBorrar")
+        limpiar.click()
+        return
+    except Exception:
+        pass
 
-<ul class="WEB_zonaIngresoBotonera" id="ulKeypad"><ul><li onclick="liClick(4)">4</li><li onclick="liClick(7)">7</li><li onclick="liClick(8)">8</li><li onclick="liClick(0)">0</li><li onclick="liClick(9)">9</li><li onclick="liClick(5)">5</li><li onclick="liClick(3)">3</li><li onclick="liClick(2)">2</li><li onclick="liClick(1)">1</li><li onclick="liClick(6)">6</li></ul><li onclick="limpiarCodigo()" class="WEB_zonaIngresobtnBorrar">limpiar</li></ul>
+    # 2) intentar ejecutar la función JS (si está disponible)
+    try:
+        driver.execute_script("if (typeof limpiarCodigo === 'function') { limpiarCodigo(); }")
+    except Exception:
+        pass
 
-El boton es este
+def click_keypad_digits(driver, wait: WebDriverWait, password: str):
+    """
+    password: solo dígitos (ej: "478095")
+    """
+    if not password.isdigit():
+        raise ValueError("La clave para este keypad debe ser solo numérica (dígitos).")
 
-<input type="button" value="ACEPTAR" class="WEB_zonaIngresoBoton" id="btnIngresar" name="btnIngresar" onclick="ingresar()">
+    # asegurar keypad visible
+    wait.until(EC.presence_of_element_located((By.ID, "ulKeypad")))
+
+    clear_keypad_if_possible(driver)
+    human_pause(0.2, 0.5)
+
+    for d in password:
+        # Opción robusta: buscar por el texto visible del LI
+        # (sirve incluso si el orden cambia)
+        li = wait.until(
+            EC.element_to_be_clickable(
+                (By.XPATH, f"//ul[@id='ulKeypad']//li[normalize-space(text())='{d}']")
+            )
+        )
+        li.click()
+        human_pause(0.15, 0.45)
+
+def login_extranet_sbs(driver, usuario: str, clave_numerica: str, timeout: int = 25):
+    wait = WebDriverWait(driver, timeout)
+    driver.get(URL_LOGIN)
+
+    # Usuario
+    user_inp = wait.until(EC.presence_of_element_located((By.ID, "c_c_usuario")))
+    # a veces tienen watermark; click antes ayuda
+    user_inp.click()
+    type_like_human(user_inp, usuario, 0.02, 0.06)
+    human_pause(0.3, 0.8)
+
+    # Clave por keypad
+    click_keypad_digits(driver, wait, clave_numerica)
+    human_pause(0.3, 0.8)
+
+    # ACEPTAR
+    btn = wait.until(EC.element_to_be_clickable((By.ID, "btnIngresar")))
+    btn.click()
+
+    # Aquí depende del sitio: podrías esperar un elemento post-login
+    # Ejemplo genérico: esperar que cambie la URL o que aparezca algún contenedor
+    # wait.until(EC.url_changes(URL_LOGIN))
+
+if __name__ == "__main__":
+    # Sugerencia: NO hardcodees credenciales en código
+    USUARIO = os.environ.get("SBS_USER", "TU_USUARIO")
+    CLAVE = os.environ.get("SBS_PASS", "123456")  # clave numérica
+
+    driver = build_chrome_driver(user_data_dir=PROFILE_SBS_DIR, show_window=True)
+    try:
+        login_extranet_sbs(driver, USUARIO, CLAVE)
+        print("Login disparado. Revisa si entró correctamente.")
+        input("ENTER para cerrar...")
+    finally:
+        driver.quit()
