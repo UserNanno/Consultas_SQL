@@ -1,3 +1,5 @@
+https://github.com/UB-Mannheim/tesseract/wiki
+
 from PIL import Image, ImageOps
 import pytesseract
 import re
@@ -22,3 +24,4 @@ text = pytesseract.image_to_string(bw, config=config).strip()
 text = re.sub(r"\s+", "", text)
 
 print("OCR:", text)
+
