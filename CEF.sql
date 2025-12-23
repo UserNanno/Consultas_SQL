@@ -51,7 +51,7 @@ def build_productos_snapshot(df_productos_enriq):
 df_last_estado = build_last_estado_snapshot(df_estados_enriq)
 df_prod_snap   = build_productos_snapshot(df_productos_enriq)
 
-df_final_autonomias_plus = (
+df_final = (
     df_final_autonomias
       .join(df_last_estado, on="CODSOLICITUD", how="left")
       .join(df_prod_snap,   on="CODSOLICITUD", how="left")
@@ -60,3 +60,4 @@ df_final_autonomias_plus = (
       .withColumnRenamed("ESTADOSOLICITUD_ESTADOS", "ESTADOSOLICITUD")
       .withColumnRenamed("ESTADOSOLICITUDPASO_ESTADOS", "ESTADOSOLICITUDPASO")
 )
+
