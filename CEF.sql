@@ -1,30 +1,17 @@
-pip install easyocr opencv-python
+pip install pyautogui pillow
 
 
-import easyocr
-import cv2
+import pyautogui
 
-reader = easyocr.Reader(['en'], gpu=False)
+# Coordenadas (x, y, ancho, alto)
+# OJO: son píxeles de pantalla
+region = (500, 300, 200, 80)
 
-img = cv2.imread("imagen.png")
+img = pyautogui.screenshot(region=region)
 
-result = reader.readtext(
-    img,
-    allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-)
-
-if result:
-    texto = result[0][1]
-    print(texto)
-else:
-    print("No se detectó texto")
+img.save("captura.png")
 
 
-result = reader.readtext(
-    img,
-    detail=0,
-    allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-)
 
-
-A9X3Q
+import pyautogui
+print(pyautogui.position())
