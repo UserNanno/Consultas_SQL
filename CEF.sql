@@ -3,76 +3,86 @@
   --user-data-dir="C:\ChromeDebugProfile"
 
 
+Ya me funcionó todo
+
+Ahora quiero unir todos mis pasos
+
+  1. entra a la pagina y coloca el usuario y contraseña
 
 
-import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
 
+# =========================
+# CONFIG
+# =========================
 CHROMEDRIVER_PATH = r"D:\Datos de Usuarios\T72496\Downloads\chromedriver-win64\chromedriver-win64\chromedriver.exe"
-IMG_PATH = r"D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\captura.png"
+URL_LOGIN = "https://test.com/app/login.jsp"
 
-def main():
-    options = Options()
-    options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+USUARIO = "TU_USUARIO"
+CLAVE = "123456"  # solo números
 
-    driver = webdriver.Chrome(
-        service=Service(CHROMEDRIVER_PATH),
-        options=options
+# =========================
+# DRIVER
+# =========================
+opts = Options()
+opts.add_argument("--window-size=1200,800")
+
+service = Service(CHROMEDRIVER_PATH)
+driver = webdriver.Chrome(service=service, options=opts)
+wait = WebDriverWait(driver, 20)
+
+# =========================
+# LOGIN
+# =========================
+driver.get(URL_LOGIN)
+
+# Usuario
+inp_user = wait.until(EC.presence_of_element_located((By.ID, "c_c_usuario")))
+inp_user.clear()
+inp_user.send_keys(USUARIO)
+
+# Esperar keypad
+wait.until(EC.presence_of_element_located((By.ID, "ulKeypad")))
+
+# Limpiar clave (si existe)
+try:
+    driver.find_element(By.CSS_SELECTOR, "#ulKeypad li.WEB_zonaIngresobtnBorrar").click()
+except Exception:
+    pass
+
+# Ingresar clave con clicks
+for d in CLAVE:
+    tecla = wait.until(
+        EC.element_to_be_clickable(
+            (By.XPATH, f"//ul[@id='ulKeypad']//li[normalize-space()='{d}']")
+        )
     )
+    tecla.click()
+    time.sleep(0.2)
 
-    wait = WebDriverWait(driver, 30)
+# ACEPTAR
+btn = wait.until(EC.element_to_be_clickable((By.ID, "btnIngresar")))
+btn.click()
 
-    driver.get("https://m365.cloud.microsoft/chat/?auth=2")
+print("Login ejecutado. Revisa el navegador.")
+input("ENTER para cerrar...")
 
-    print("URL actual:", driver.current_url)
-
-    # Subir imagen (buscar el input real)
-    file_input = wait.until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
-    )
-    file_input.send_keys(IMG_PATH)
-
-    box = wait.until(
-        EC.element_to_be_clickable((By.ID, "m365-chat-editor-target-element"))
-    )
-    box.click()
-    box.send_keys("En una sola palabra dime el texto de la imagen")
-    box.send_keys(Keys.ENTER)
-
-    time.sleep(2)
-
-    def last_p_with_text(drv):
-        ps = drv.find_elements(By.CSS_SELECTOR, "p")
-        texts = [p.text.strip() for p in ps if p.is_displayed() and p.text.strip()]
-        return texts[-1] if texts else None
-
-    result = wait.until(lambda d: last_p_with_text(d))
-    print("Respuesta:", result)
-
-    # NO cierres Chrome en debug
-    # driver.quit()
-
-if __name__ == "__main__":
-    main()
+driver.quit()
 
 
 
+Antes de dar enter debe escribir acá
 
-A esta version que abre con debug quizá podamos dar un tiempo de espera a que complete de escribir y adjuntar la imagen
-  y luego que intente dar click en este boton unas 3 veces
-
-  <button type="submit" aria-label="Enviar" class="fui-Button r1alrhcs fai-SendButton fai-ChatInput__send fai-ExpandableChatInput__send ___1l3wey0 ffp7eso f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1phragk fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f1m1wcaq ft1hn21 fuxngvv fwiml72 f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1fg1p5m f1dfjoow f1j98vj9 f1tme0vf f4xjyn1 f18onu3q f9ddjv3 fwbmr0d f1mk8lai f44lkw9 fod5ikn fl43uef faaz57k f1062rbf f22iagw feqmc2u fbhnoac f122n59 f1lm9dni f1mn5ei1 f5n6bpk fxeu3t6 fac75ms f1wkqx0x fpjfiuo f10vq4ri f15flfb3 fk73vx1 f1ho2jej faaplsl fnf7g6g f10t3ba1 f1ec5yf7 fq8omct" tabindex="0" title="Enviar"><span class="fai-SendButton__sendIcon ___udkpex0 f1euv43f f122n59 ftuwxu6 f4d9j23 f1pp30po frvgh55 fq4mcun"><svg class="fui-Icon-filled ___yt8pzc0 fjseox fez10in f1dd5bof" fill="currentColor" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13.7 4.28a1 1 0 1 0-1.4 1.43L17.67 11H4a1 1 0 1 0 0 2h13.66l-5.36 5.28a1 1 0 0 0 1.4 1.43l6.93-6.82c.5-.5.5-1.3 0-1.78L13.7 4.28Z" fill="currentColor"></path></svg><svg class="fui-Icon-regular ___9ctc0p0 f1w7gpdv fez10in f1dd5bof" fill="currentColor" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13.27 4.2a.75.75 0 0 0-1.04 1.1l6.25 5.95H3.75a.75.75 0 0 0 0 1.5h14.73l-6.25 5.95a.75.75 0 0 0 1.04 1.1l7.42-7.08a1 1 0 0 0 0-1.44L13.27 4.2Z" fill="currentColor"></path></svg></span></button>
+<input id="c_c_captcha" type="text" name="c_c_captcha" class="WEB_zonaIngresoCaptchaInfo watermark" maxlength="5" title="Ingrese texto captcha">
 
 
-
-
-
+El texto que me arroje el siguiente script
 
 import time
 from selenium import webdriver
@@ -219,3 +229,40 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+La respuesta debe ser unicamente lo que devuelva copilot
+
+Ahora antes de buscar en copilot o ejecutar lo anterior debe buscar primero la imagen a consultar
+
+Par aello se debe ejecutar esto que captura la imgen que quiero buscar en copilot
+  
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+import time
+
+CHROMEDRIVER_PATH = r"D:\Datos de Usuarios\T72496\Downloads\chromedriver-win64\chromedriver-win64\chromedriver.exe"
+
+options = Options()
+options.add_argument("--start-maximized")
+
+service = Service(CHROMEDRIVER_PATH)
+driver = webdriver.Chrome(service=service, options=options)
+
+driver.get("https://test.com/app/login.jsp")
+
+# Espera a que cargue el elemento
+time.sleep(2)  # simple y efectivo
+element = driver.find_element(By.ID, "imgID")
+
+# Captura SOLO el elemento
+element.screenshot("captura.png")
+
+print("Captura guardada como captura.png")
+
+driver.quit()
+
+
+
+Se entiende?
