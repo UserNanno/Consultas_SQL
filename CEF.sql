@@ -80,7 +80,7 @@ driver.quit()
 
 Antes de dar enter debe escribir acá
 
-<input id="c_c_captcha" type="text" name="c_c_captcha" class="WEB_zonaIngresoCaptchaInfo watermark" maxlength="5" title="Ingrese texto captcha">
+<input id="c_c_test" type="text" name="c_c_test" class="WEB_zonaIngresoTestInfo watermark" maxlength="5" title="Ingrese texto test">
 
 
 El texto que me arroje el siguiente script
@@ -267,4 +267,5 @@ driver.quit()
 
 
 Se entiende?
+
 
