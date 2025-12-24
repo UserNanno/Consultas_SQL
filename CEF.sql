@@ -64,7 +64,10 @@ if __name__ == "__main__":
 
 
 
+A esta version que abre con debug quizá podamos dar un tiempo de espera a que complete de escribir y adjuntar la imagen
+  y luego que intente dar click en este boton unas 3 veces
 
+  <button type="submit" aria-label="Enviar" class="fui-Button r1alrhcs fai-SendButton fai-ChatInput__send fai-ExpandableChatInput__send ___1l3wey0 ffp7eso f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1phragk fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f1m1wcaq ft1hn21 fuxngvv fwiml72 f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1fg1p5m f1dfjoow f1j98vj9 f1tme0vf f4xjyn1 f18onu3q f9ddjv3 fwbmr0d f1mk8lai f44lkw9 fod5ikn fl43uef faaz57k f1062rbf f22iagw feqmc2u fbhnoac f122n59 f1lm9dni f1mn5ei1 f5n6bpk fxeu3t6 fac75ms f1wkqx0x fpjfiuo f10vq4ri f15flfb3 fk73vx1 f1ho2jej faaplsl fnf7g6g f10t3ba1 f1ec5yf7 fq8omct" tabindex="0" title="Enviar"><span class="fai-SendButton__sendIcon ___udkpex0 f1euv43f f122n59 ftuwxu6 f4d9j23 f1pp30po frvgh55 fq4mcun"><svg class="fui-Icon-filled ___yt8pzc0 fjseox fez10in f1dd5bof" fill="currentColor" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13.7 4.28a1 1 0 1 0-1.4 1.43L17.67 11H4a1 1 0 1 0 0 2h13.66l-5.36 5.28a1 1 0 0 0 1.4 1.43l6.93-6.82c.5-.5.5-1.3 0-1.78L13.7 4.28Z" fill="currentColor"></path></svg><svg class="fui-Icon-regular ___9ctc0p0 f1w7gpdv fez10in f1dd5bof" fill="currentColor" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13.27 4.2a.75.75 0 0 0-1.04 1.1l6.25 5.95H3.75a.75.75 0 0 0 0 1.5h14.73l-6.25 5.95a.75.75 0 0 0 1.04 1.1l7.42-7.08a1 1 0 0 0 0-1.44L13.27 4.2Z" fill="currentColor"></path></svg></span></button>
 
 
 
@@ -185,5 +188,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
