@@ -1,14 +1,17 @@
 import os
+import re
 import time
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
+
 
 # =========================
 # CONFIG
@@ -25,10 +28,12 @@ CAPTURA_PATH = r"D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\c
 
 PROMPT = "En una sola palabra dime el texto de la imagen"
 
+
 # =========================
-# HELPERS COPILOT
+# HELPERS
 # =========================
 def wait_send_enabled(driver, wait):
+    """Espera botón Enviar (Copilot) habilitado."""
     def _cond(d):
         try:
             btn = d.find_element(
@@ -44,7 +49,9 @@ def wait_send_enabled(driver, wait):
         return None
     return wait.until(_cond)
 
+
 def set_contenteditable_text(driver, element, text):
+    """Escribe en contenteditable vía JS (más confiable)."""
     driver.execute_script(
         """
         const el = arguments[0];
@@ -56,6 +63,7 @@ def set_contenteditable_text(driver, element, text):
         """,
         element, text
     )
+
 
 def click_send_with_retries(driver, wait, attempts=3):
     last_err = None
@@ -70,36 +78,79 @@ def click_send_with_retries(driver, wait, attempts=3):
         except Exception as e:
             last_err = e
             time.sleep(0.6)
-    raise last_err
+    print("No se pudo clicar Enviar:", repr(last_err))
+    return False
 
-def read_last_visible_p_text(driver):
+
+def normalize_copilot_answer(text: str) -> str:
+    """Deja la respuesta lo más limpia posible (una palabra, sin cosas raras)."""
+    if not text:
+        return ""
+    t = text.strip()
+    # Quitar caracteres invisibles comunes (ZWSP/ZWNBSP)
+    t = t.replace("\u200b", "").replace("\ufeff", "").replace("\u200c", "").replace("\u200d", "")
+    # Quedarnos con la primera "palabra" si devuelve frase
+    # (letras/números/underscore con acentos también)
+    m = re.findall(r"[0-9A-Za-zÁÉÍÓÚÜÑáéíóúüñ_]+", t)
+    return m[0] if m else t
+
+
+def get_last_visible_p_text(driver):
     ps = driver.find_elements(By.CSS_SELECTOR, "p")
     texts = [p.text.strip() for p in ps if p.is_displayed() and p.text.strip()]
     return texts[-1] if texts else None
 
-def get_copilot_answer(driver, wait, img_path, prompt):
+
+# =========================
+# MAIN
+# =========================
+def main():
+    # 1) Conectarse a Chrome DEBUG ya abierto
+    options = Options()
+    options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+
+    driver = webdriver.Chrome(service=Service(CHROMEDRIVER_PATH), options=options)
+    wait = WebDriverWait(driver, 40)
+
+    # 2) TAB 1: Formulario
+    driver.get(URL_LOGIN)
+    form_handle = driver.current_window_handle
+
+    # 2.1) Capturar imagen del elemento imgID
+    #     (mejor que sleep fijo: esperamos que exista y sea visible)
+    img_el = wait.until(EC.visibility_of_element_located((By.ID, "imgID")))
+    os.makedirs(os.path.dirname(CAPTURA_PATH), exist_ok=True)
+    img_el.screenshot(CAPTURA_PATH)
+    print("Captura guardada:", CAPTURA_PATH)
+
+    # 3) Abrir TAB 2: Copilot (EN OTRA PESTAÑA)
+    driver.execute_script("window.open('about:blank','_blank');")
+    handles = driver.window_handles
+    copilot_handle = [h for h in handles if h != form_handle][-1]
+    driver.switch_to.window(copilot_handle)
+
     driver.get(URL_COPILOT)
 
-    # Subir imagen
+    # 3.1) Subir imagen en Copilot
     file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']")))
-    file_input.send_keys(img_path)
+    file_input.send_keys(CAPTURA_PATH)
 
-    # Esperar a que enviar se habilite (adjunto puede tardar)
+    # 3.2) Esperar botón enviar habilitado (cuando adjunta, a veces tarda)
     try:
         wait_send_enabled(driver, wait)
     except TimeoutException:
         pass
 
-    # Escribir prompt
+    # 3.3) Escribir prompt
     box = wait.until(EC.element_to_be_clickable((By.ID, "m365-chat-editor-target-element")))
     box.click()
-
-    # Limpia y escribe
+    # intento normal
     box.send_keys(Keys.CONTROL, "a")
-    box.send_keys(prompt)
-    set_contenteditable_text(driver, box, prompt)
+    box.send_keys(PROMPT)
+    # refuerzo JS
+    set_contenteditable_text(driver, box, PROMPT)
 
-    # Intento Enter
+    # 3.4) Enviar (enter + fallback botón)
     sent = False
     try:
         ActionChains(driver).move_to_element(box).click(box).send_keys(Keys.ENTER).perform()
@@ -107,11 +158,10 @@ def get_copilot_answer(driver, wait, img_path, prompt):
     except Exception:
         sent = False
 
-    # Si Enter no envía, click en Enviar (3 intentos)
     if not sent:
         click_send_with_retries(driver, wait, attempts=3)
     else:
-        # refuerzo: si sigue habilitado, quizá no envió
+        # si por algo no envió, reforzamos
         time.sleep(0.8)
         try:
             btn = driver.find_element(
@@ -124,101 +174,60 @@ def get_copilot_answer(driver, wait, img_path, prompt):
         except Exception:
             pass
 
-    # Esperar respuesta “nueva”: estrategia simple (puedes refinar si el DOM cambia mucho)
-    end_time = time.time() + 40
-    last = None
-    while time.time() < end_time:
-        txt = read_last_visible_p_text(driver)
-        if txt and txt != last and txt.strip() != prompt.strip():
-            # OJO: a veces lo último puede ser el eco del prompt; filtramos eso.
-            # Si tu Copilot devuelve exactamente el prompt (como te pasó), esto lo evita.
-            # Si igual quieres permitirlo, quita la condición de != prompt.
-            return txt.strip()
-        last = txt
-        time.sleep(0.4)
+    # 3.5) Leer respuesta
+    # Esperamos a que aparezca un <p> con texto (puede tardar)
+    try:
+        raw = WebDriverWait(driver, 60).until(lambda d: get_last_visible_p_text(d))
+    except TimeoutException:
+        raw = ""
 
-    raise TimeoutException("No pude leer respuesta de Copilot a tiempo.")
+    answer = normalize_copilot_answer(raw)
+    if not answer:
+        raise RuntimeError("No se pudo obtener respuesta de Copilot (texto vacío).")
 
-# =========================
-# HELPERS LOGIN TEST.COM
-# =========================
-def capture_img_element(driver, wait, save_path):
-    driver.get(URL_LOGIN)
-    # esperar imgID
-    el = wait.until(EC.presence_of_element_located((By.ID, "imgID")))
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    el.screenshot(save_path)
+    print("Respuesta Copilot (limpia):", answer)
 
-def login_test_site(driver, wait, usuario, clave, test_text):
-    driver.get(URL_LOGIN)
+    # 4) Cerrar tab Copilot y volver al formulario
+    driver.close()
+    driver.switch_to.window(form_handle)
 
-    # Usuario
-    inp_user = wait.until(EC.presence_of_element_located((By.ID, "c_c_usuario")))
-    inp_user.clear()
-    inp_user.send_keys(usuario)
-
-    # Escribir el test ANTES de enter/aceptar
+    # 5) Escribir respuesta en c_c_test ANTES de continuar login
     inp_test = wait.until(EC.presence_of_element_located((By.ID, "c_c_test")))
     inp_test.clear()
-    inp_test.send_keys(test_text)
+    inp_test.send_keys(answer)
 
-    # Esperar keypad
+    # 6) LOGIN (usuario + keypad + aceptar)
+    inp_user = wait.until(EC.presence_of_element_located((By.ID, "c_c_usuario")))
+    inp_user.clear()
+    inp_user.send_keys(USUARIO)
+
     wait.until(EC.presence_of_element_located((By.ID, "ulKeypad")))
 
-    # (Opcional) limpiar clave si hay botón borrar
+    # Limpiar clave (si el botón existe)
     try:
         driver.find_element(By.CSS_SELECTOR, "#ulKeypad li.WEB_zonaIngresobtnBorrar").click()
     except Exception:
         pass
 
-    # Click por cada dígito
-    for d in clave:
+    for d in CLAVE:
         tecla = wait.until(
-            EC.element_to_be_clickable((By.XPATH, f"//ul[@id='ulKeypad']//li[normalize-space()='{d}']"))
+            EC.element_to_be_clickable(
+                (By.XPATH, f"//ul[@id='ulKeypad']//li[normalize-space()='{d}']")
+            )
         )
         tecla.click()
-        time.sleep(0.15)
+        time.sleep(0.2)
 
-    # ACEPTAR
     btn = wait.until(EC.element_to_be_clickable((By.ID, "btnIngresar")))
     btn.click()
 
-# =========================
-# MAIN
-# =========================
-def main():
-    # 1) Conectar a Chrome debug (debe estar abierto con --remote-debugging-port=9222)
-    options = Options()
-    options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+    print("Listo: pegó el texto y ejecutó el login.")
 
-    try:
-        driver = webdriver.Chrome(service=Service(CHROMEDRIVER_PATH), options=options)
-    except Exception as e:
-        raise SystemExit(
-            "No pude conectar al Chrome en debug.\n"
-            "Asegúrate de abrirlo así (CMD):\n"
-            r'"C:\Program Files\Google\Chrome\Application\chrome.exe" ^' "\n"
-            r'  --remote-debugging-port=9222 ^' "\n"
-            r'  --user-data-dir="C:\ChromeDebugProfile"' "\n\n"
-            f"Detalle: {repr(e)}"
-        )
+    # No cierres si estás en debug y quieres ver el resultado:
+    input("ENTER para terminar (NO cierra Chrome debug, solo el script)...")
 
-    wait = WebDriverWait(driver, 30)
+    # NO driver.quit() para no tumbar tu sesión debug
 
-    # 2) Capturar imagen del sitio
-    capture_img_element(driver, wait, CAPTURA_PATH)
-
-    # 3) Preguntar a Copilot por el texto
-    copilot_text = get_copilot_answer(driver, WebDriverWait(driver, 40), CAPTURA_PATH, PROMPT)
-
-    # 4) Usar ese texto en el login del sitio
-    login_test_site(driver, wait, USUARIO, CLAVE, copilot_text)
-
-    # 5) Imprimir ÚNICAMENTE lo que devolvió Copilot
-    print(copilot_text)
-
-    # En debug normalmente NO cerramos
-    # driver.quit()
 
 if __name__ == "__main__":
     main()
