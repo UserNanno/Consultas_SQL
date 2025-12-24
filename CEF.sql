@@ -74,10 +74,6 @@ A esta version que abre con debug quizá podamos dar un tiempo de espera a que c
 
 
 
-
-
-
-
 import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -86,20 +82,72 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
+from selenium.webdriver.common.action_chains import ActionChains
 
 CHROMEDRIVER_PATH = r"D:\Datos de Usuarios\T72496\Downloads\chromedriver-win64\chromedriver-win64\chromedriver.exe"
 IMG_PATH = r"D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\captura.png"
 
 URL = "https://m365.cloud.microsoft/chat/?auth=2"
 
-def get_visible_p_texts(driver):
-    ps = driver.find_elements(By.CSS_SELECTOR, "p")
-    return [p.text.strip() for p in ps if p.is_displayed() and p.text.strip()]
+def wait_send_enabled(driver, wait):
+    """
+    Espera hasta que el botón Enviar exista y esté habilitado.
+    Copilot a veces usa disabled o aria-disabled.
+    """
+    def _cond(d):
+        try:
+            btn = d.find_element(By.CSS_SELECTOR, "button[type='submit'][aria-label='Enviar'], button[type='submit'][title='Enviar']")
+            disabled_attr = btn.get_attribute("disabled")
+            aria_disabled = btn.get_attribute("aria-disabled")
+            # enabled si NO tiene disabled y aria-disabled no es "true"
+            if disabled_attr is None and (aria_disabled is None or aria_disabled.lower() != "true"):
+                return btn
+        except Exception:
+            return None
+        return None
+
+    return wait.until(_cond)
+
+def set_contenteditable_text(driver, element, text):
+    """
+    Asegura el texto en un contenteditable usando JS (más confiable que send_keys en ciertas webs).
+    """
+    driver.execute_script(
+        """
+        const el = arguments[0];
+        const txt = arguments[1];
+        el.focus();
+        // Limpia y escribe como texto
+        el.innerText = txt;
+
+        // Dispara eventos para que la app "se entere"
+        el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        """,
+        element, text
+    )
+
+def click_send_with_retries(driver, wait, attempts=3):
+    last_err = None
+    for i in range(attempts):
+        try:
+            btn = wait_send_enabled(driver, wait)
+            # click "real" + fallback JS por si hay overlay
+            try:
+                btn.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", btn)
+            return True
+        except Exception as e:
+            last_err = e
+            time.sleep(0.6)
+    print("No se pudo clicar Enviar tras reintentos:", repr(last_err))
+    return False
 
 def main():
     options = Options()
-    options.add_argument(r'--user-data-dir=C:\Users\T72496\AppData\Local\Google\Chrome\User Data')
-    options.add_argument(r'--profile-directory=Default')
+    options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
 
     driver = webdriver.Chrome(service=Service(CHROMEDRIVER_PATH), options=options)
     wait = WebDriverWait(driver, 40)
@@ -107,87 +155,67 @@ def main():
     driver.get(URL)
     print("URL actual:", driver.current_url)
 
-    # Captura "estado" antes de enviar para luego detectar cambios
-    before_texts = get_visible_p_texts(driver)
+    # 1) Subir imagen (input real)
+    file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']")))
+    file_input.send_keys(IMG_PATH)
 
-    # 1) Subir imagen
-    # OJO: a veces el elemento con id upload-file-button es un <button> que abre el diálogo,
-    # y el input real es <input type=file>. Si te falla, te dejo un fallback.
+    # 2) Espera a que el botón Enviar esté habilitado (clave cuando hay adjunto)
     try:
-        file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']")))
-        file_input.send_keys(IMG_PATH)
-    except:
-        # si solo existe botón, intenta click y luego buscar el input file
-        btn = wait.until(EC.element_to_be_clickable((By.ID, "upload-file-button")))
-        btn.click()
-        file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']")))
-        file_input.send_keys(IMG_PATH)
+        wait_send_enabled(driver, wait)
+    except TimeoutException:
+        print("Ojo: el botón Enviar no se habilitó a tiempo. Igual intento continuar...")
 
-    # 2) Escribir prompt
+    # 3) Escribir prompt en el contenteditable
     box = wait.until(EC.element_to_be_clickable((By.ID, "m365-chat-editor-target-element")))
     box.click()
-    box.send_keys(Keys.CONTROL, "a")
-    box.send_keys("En una sola palabra dime el texto de la imagen")
 
-    # 3) Esperar a que "Enviar" esté listo y enviar
-    # Intentamos localizar un botón de enviar típico (puede variar).
-    # Fallback: CTRL+ENTER.
-    send_btn = None
-    possible_selectors = [
-        "button[aria-label='Send']",
-        "button[title='Send']",
-        "button[data-testid*='send']",
-        "button[id*='send']",
-    ]
-    for sel in possible_selectors:
-        try:
-            send_btn = driver.find_element(By.CSS_SELECTOR, sel)
-            break
-        except:
-            pass
-
-    # Espera a que el botón esté habilitado (si existe). Si no existe, usa CTRL+ENTER.
-    sent = False
-    if send_btn:
-        def enabled_send(d):
-            try:
-                b = d.find_element(By.CSS_SELECTOR, sel)  # último selector que encontró
-                return b.is_displayed() and b.is_enabled()
-            except:
-                return False
-
-        try:
-            wait.until(enabled_send)
-            # click normal; si lo intercepta algo, click por JS
-            try:
-                send_btn.click()
-            except:
-                driver.execute_script("arguments[0].click();", send_btn)
-            sent = True
-        except:
-            pass
-
-    if not sent:
-        # En varios chats modernos: CTRL+ENTER envía más confiable que ENTER
-        box.click()
-        box.send_keys(Keys.CONTROL, Keys.ENTER)
-
-    # 4) Esperar respuesta REAL (texto nuevo diferente al prompt)
     prompt = "En una sola palabra dime el texto de la imagen"
+    # primero intenta send_keys normal
+    box.send_keys(Keys.CONTROL, "a")
+    box.send_keys(prompt)
 
-    def new_answer(d):
-        texts = get_visible_p_texts(d)
-        # buscamos cualquier texto nuevo que no esté en before_texts y que no sea el prompt
-        news = [t for t in texts if t not in before_texts and t != prompt]
-        return news[-1] if news else None
+    # refuerzo: set por JS (por si Copilot no registró el send_keys)
+    set_contenteditable_text(driver, box, prompt)
 
-    result = wait.until(new_answer)
-    print("Respuesta:", result)
+    # 4) Intentar Enter; si no, click Enviar 3 veces
+    sent = False
+    try:
+        ActionChains(driver).move_to_element(box).click(box).send_keys(Keys.ENTER).perform()
+        sent = True
+    except Exception:
+        sent = False
 
-    driver.quit()
+    # a veces Enter no envía si hay adjunto; usa botón
+    if not sent:
+        click_send_with_retries(driver, wait, attempts=3)
+    else:
+        # aunque "haya enviado", a veces no; reforzamos con click si sigue habilitado
+        time.sleep(0.8)
+        try:
+            btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit'][aria-label='Enviar'], button[type='submit'][title='Enviar']")
+            aria_disabled = (btn.get_attribute("aria-disabled") or "").lower()
+            if aria_disabled != "true" and btn.get_attribute("disabled") is None:
+                # si sigue habilitado, probablemente NO envió -> click
+                click_send_with_retries(driver, wait, attempts=3)
+        except Exception:
+            pass
+
+    # 5) Esperar “algo” de respuesta (esto es muy genérico; depende del DOM real)
+    time.sleep(2)
+
+    def last_p_with_text(drv):
+        ps = drv.find_elements(By.CSS_SELECTOR, "p")
+        texts = [p.text.strip() for p in ps if p.is_displayed() and p.text.strip()]
+        return texts[-1] if texts else None
+
+    try:
+        result = wait.until(lambda d: last_p_with_text(d))
+        print("Respuesta:", result)
+    except TimeoutException:
+        print("No pude leer respuesta a tiempo (puede que el DOM cambie o esté cargando).")
+
+    # En modo debug, no cierres
+    # driver.quit()
 
 if __name__ == "__main__":
     main()
-
-
-
