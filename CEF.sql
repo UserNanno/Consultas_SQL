@@ -1,46 +1,59 @@
-(venv) D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic>py reconocimiento.py
-Traceback (most recent call last):
-  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\driver_finder.py", line 67, in _binary_paths
-    output = SeleniumManager().binary_paths(self._to_args())
-  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\selenium_manager.py", line 54, in binary_paths
-    return self._run(args)
-           ~~~~~~~~~^^^^^^
-  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\selenium_manager.py", line 131, in _run
-    raise WebDriverException(
-        f"Unsuccessful command executed: {command}; code: {completed_proc.returncode}\n{result}\n{stderr}"
-    )
-selenium.common.exceptions.WebDriverException: Message: Unsuccessful command executed: D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\windows\selenium-manager.exe --browser chrome --language-binding python --output json; code: 65
-{'code': 65, 'message': 'Unsuccessful response (403 Forbidden) for URL https://storage.googleapis.com/chrome-for-testing-public/143.0.7499.169/win64/chromedriver-win64.zip', 'driver_path': '', 'browser_path': ''}
+import re
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
+URL = "https://m365.cloud.microsoft/chat/?auth=2"
 
+CHROMEDRIVER = r"D:\RUTA\A\chromedriver.exe"
+IMAGE_PATH  = r"D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\captura.png"
 
-The above exception was the direct cause of the following exception:
+PROMPT = "En una sola palabra dime el texto de la imagen."
 
-Traceback (most recent call last):
-  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\reconocimiento.py", line 58, in <module>
+def main():
+    options = webdriver.ChromeOptions()
+    options.add_argument("--start-maximized")
+
+    service = Service(CHROMEDRIVER)
+    driver = webdriver.Chrome(service=service, options=options)
+    wait = WebDriverWait(driver, 30)
+
+    driver.get(URL)
+
+    # Si necesitas login/MFA manual, pausa aquí:
+    input("Cuando termines de iniciar sesión en Copilot, presiona ENTER...")
+
+    # 1) Subir archivo (input hidden)
+    file_input = wait.until(EC.presence_of_element_located((By.ID, "upload-file-button")))
+    file_input.send_keys(IMAGE_PATH)
+
+    # 2) Escribir prompt en el textbox contenteditable
+    editor = wait.until(EC.element_to_be_clickable((By.ID, "m365-chat-editor-target-element")))
+    editor.click()
+    editor.send_keys(PROMPT)
+
+    # 3) Click en Enviar
+    send_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit'][aria-label='Enviar']")))
+    send_btn.click()
+
+    # 4) Esperar respuesta: último <p> que parezca la salida (ej. CEFC)
+    def last_p_text(drv):
+        ps = drv.find_elements(By.XPATH, "//p[normalize-space(.)!='']")
+        if not ps:
+            return None
+        txt = ps[-1].text.strip()
+        return txt if txt else None
+
+    answer = wait.until(lambda d: last_p_text(d))
+    print("Respuesta cruda:", answer)
+
+    # Opcional: quedarte solo con una “palabra” tipo CEFC
+    m = re.search(r"\b[A-Za-z0-9_]{2,10}\b", answer)
+    print("Respuesta filtrada:", m.group(0) if m else answer)
+
+    driver.quit()
+
+if __name__ == "__main__":
     main()
-    ~~~~^^
-  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\reconocimiento.py", line 21, in main
-    driver = webdriver.Chrome(options=options)
-  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\chrome\webdriver.py", line 46, in __init__
-    super().__init__(
-    ~~~~~~~~~~~~~~~~^
-        browser_name=DesiredCapabilities.CHROME["browserName"],
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<3 lines>...
-        keep_alive=keep_alive,
-        ^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\chromium\webdriver.py", line 51, in __init__
-    if finder.get_browser_path():
-       ~~~~~~~~~~~~~~~~~~~~~~~^^
-  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\driver_finder.py", line 47, in get_browser_path
-    return self._binary_paths()["browser_path"]
-           ~~~~~~~~~~~~~~~~~~^^
-  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\driver_finder.py", line 78, in _binary_paths
-    raise NoSuchDriverException(msg) from err
-selenium.common.exceptions.NoSuchDriverException: Message: Unable to obtain driver for chrome; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors/driver_location
-
-
-(venv) D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic>
