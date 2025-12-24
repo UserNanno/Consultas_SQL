@@ -1,57 +1,46 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import time
+(venv) D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic>py reconocimiento.py
+Traceback (most recent call last):
+  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\driver_finder.py", line 67, in _binary_paths
+    output = SeleniumManager().binary_paths(self._to_args())
+  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\selenium_manager.py", line 54, in binary_paths
+    return self._run(args)
+           ~~~~~~~~~^^^^^^
+  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\selenium_manager.py", line 131, in _run
+    raise WebDriverException(
+        f"Unsuccessful command executed: {command}; code: {completed_proc.returncode}\n{result}\n{stderr}"
+    )
+selenium.common.exceptions.WebDriverException: Message: Unsuccessful command executed: D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\windows\selenium-manager.exe --browser chrome --language-binding python --output json; code: 65
+{'code': 65, 'message': 'Unsuccessful response (403 Forbidden) for URL https://storage.googleapis.com/chrome-for-testing-public/143.0.7499.169/win64/chromedriver-win64.zip', 'driver_path': '', 'browser_path': ''}
 
-COPILOT_URL = "https://m365.cloud.microsoft/chat/?auth=2"
-IMAGE_PATH = r"D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\captura.png"
-PROMPT = "En una sola palabra dime el texto de la imagen."
 
-def main():
-    # Chrome (recomendado). Si usas Edge, cambia webdriver.Chrome por webdriver.Edge
-    options = webdriver.ChromeOptions()
 
-    # Para mantener sesión (evita loguearte cada vez):
-    options.add_argument(r"--user-data-dir=D:\selenium_profiles\copilot")
-    options.add_argument("--profile-directory=Default")
+The above exception was the direct cause of the following exception:
 
-    driver = webdriver.Chrome(options=options)
-    wait = WebDriverWait(driver, 30)
-
-    driver.get(COPILOT_URL)
-
-    # 1) Espera a que exista el input de upload (aunque esté hidden)
-    file_input = wait.until(EC.presence_of_element_located((By.ID, "upload-file-button")))
-
-    # A veces está display:none; igual suele aceptar send_keys, pero si falla, lo “destapas”:
-    driver.execute_script("arguments[0].style.display='block'; arguments[0].style.visibility='visible';", file_input)
-    file_input.send_keys(IMAGE_PATH)
-
-    # 2) Escribe prompt en el editor contenteditable
-    editor = wait.until(EC.presence_of_element_located((By.ID, "m365-chat-editor-target-element")))
-    editor.click()
-    editor.send_keys(PROMPT)
-
-    # 3) Enviar (ENTER suele funcionar; si no, clic al botón Enviar)
-    editor.send_keys(Keys.ENTER)
-
-    # 4) Esperar respuesta: buscamos el <p> más reciente dentro del contenedor que tú diste
-    #    IMPORTANTE: ese div tiene clases muy largas (inestables). Mejor: esperar cualquier <p> nuevo.
-    #    Estrategia: esperar a que aparezca al menos un <p> adicional después de enviar.
-    time.sleep(1)  # pequeño margen
-
-    # Espera a que aparezca algún <p> que contenga texto (y toma el último)
-    wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "div p")) > 0)
-    time.sleep(2)  # deja que termine de “escribir” la respuesta
-
-    ps = driver.find_elements(By.CSS_SELECTOR, "div p")
-    last = next((p.text for p in reversed(ps) if p.text.strip()), "")
-
-    print("Respuesta Copilot:", last)
-
-    # driver.quit()
-
-if __name__ == "__main__":
+Traceback (most recent call last):
+  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\reconocimiento.py", line 58, in <module>
     main()
+    ~~~~^^
+  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\reconocimiento.py", line 21, in main
+    driver = webdriver.Chrome(options=options)
+  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\chrome\webdriver.py", line 46, in __init__
+    super().__init__(
+    ~~~~~~~~~~~~~~~~^
+        browser_name=DesiredCapabilities.CHROME["browserName"],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        keep_alive=keep_alive,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\chromium\webdriver.py", line 51, in __init__
+    if finder.get_browser_path():
+       ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\driver_finder.py", line 47, in get_browser_path
+    return self._binary_paths()["browser_path"]
+           ~~~~~~~~~~~~~~~~~~^^
+  File "D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\selenium\webdriver\common\driver_finder.py", line 78, in _binary_paths
+    raise NoSuchDriverException(msg) from err
+selenium.common.exceptions.NoSuchDriverException: Message: Unable to obtain driver for chrome; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors/driver_location
+
+
+(venv) D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic>
