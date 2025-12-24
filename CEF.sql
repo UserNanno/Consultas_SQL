@@ -1,11 +1,12 @@
-"C:\Program Files\Google\Chrome\Application\chrome.exe" ^
-  --remote-debugging-port=9222 ^
-  --user-data-dir="C:\ChromeDebugProfile"
-
-
 Ya me funcionó todo
 
 Ahora quiero unir todos mis pasos
+
+  0. Primero debe entrar en modo debug a chrome con 
+
+  "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+  --remote-debugging-port=9222 ^
+  --user-data-dir="C:\ChromeDebugProfile"
 
   1. entra a la pagina y coloca el usuario y contraseña
 
@@ -266,3 +267,4 @@ driver.quit()
 
 
 Se entiende?
+
