@@ -7,7 +7,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
-CHROMEDRIVER_PATH = r"D:\ruta\chromedriver.exe"
+CHROMEDRIVER_PATH = r"D:\Datos de Usuarios\T72496\Downloads\chromedriver-win64\chromedriver-win64\chromedriver.exe"
 IMG_PATH = r"D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\captura.png"
 
 def main():
@@ -51,3 +51,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
