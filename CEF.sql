@@ -1,3 +1,11 @@
+"C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+  --remote-debugging-port=9222 ^
+  --user-data-dir="C:\ChromeDebugProfile"
+
+
+
+
+
 import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -108,3 +116,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
