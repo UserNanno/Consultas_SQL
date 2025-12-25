@@ -1,6 +1,7 @@
 # Paso base según tipo
 es_paso_base = (is_tc & paso_tc_analista) | (is_cef & paso_cef_analista)
 w_base = Window.partitionBy("CODSOLICITUD").orderBy(F.col("FECHORINICIOEVALUACION").desc())
+
 df_base_latest = (
    df_estados_enriq
      .filter(es_paso_base)
@@ -13,6 +14,7 @@ df_base_latest = (
          F.col("FECHORINICIOEVALUACION").alias("TS_BASE_ESTADOS")
      )
 )
+
 df_matanalista_estados = (
    df_base_latest
      .withColumn(
@@ -30,7 +32,6 @@ df_matanalista_estados = (
      .select("CODSOLICITUD", "MATANALISTA_ESTADOS", "ORIGEN_MATANALISTA_ESTADOS", "TS_BASE_ESTADOS")
 )
 
-   
 # Snapshot productos 1 fila por CODSOLICITUD (para MAT3/MAT4)
 w_prod_mat = Window.partitionBy("CODSOLICITUD").orderBy(F.col("FECCREACION").desc_nulls_last())
 
@@ -43,6 +44,7 @@ df_matanalista_productos = (
           F.col("MATORGANICO_ANALISTA").alias("MAT3_PRODUCTOS"),
           F.col("MATORGANICO_ASIGNADO").alias("MAT4_PRODUCTOS"),
       )
+      .drop("rn")
 )
 
 df_matanalista_final = (
