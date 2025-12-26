@@ -1,3 +1,7 @@
+msedge.exe --remote-debugging-port=9222 --user-data-dir="%TEMP%\edge-debug"
+
+
+
 import time
 from pathlib import Path
 
@@ -183,3 +187,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
