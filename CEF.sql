@@ -11,6 +11,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
 
+EDGE_EXE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+DEBUG_PORT = 9223
+
 URL_LOGIN = "https://extranet.sbs.gob.pe/app/login.jsp"
 URL_COPILOT = "https://m365.cloud.microsoft/chat/?auth=2"
 
@@ -24,7 +27,24 @@ else:
 
 IMG_PATH = BASE_DIR / "output" / "captura.png"
 
+def ensure_edge_debug():
+    profile_dir = Path(tempfile.gettempdir()) / "edge_selenium_profile"
 
+    args = [
+        EDGE_EXE,
+        f"--remote-debugging-port={DEBUG_PORT}",
+        f"--user-data-dir={profile_dir}",
+        # opcionales:
+        "--new-window",
+        "--start-maximized",
+    ]
+
+    # Abre Edge (no bloquea)
+    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Dale unos segundos a Edge para levantar el puerto
+    time.sleep(2.5)
+    
 # COPILOT HELPERS
 def wait_send_enabled(driver, wait):
     def _cond(d):
@@ -132,7 +152,8 @@ def copilot_ask_from_image(driver, img_path: Path):
 
 
 def main():
-    # Conectar Edge en DEBUG ya abierto en 9223
+    ensure_edge_debug()
+    
     opts = EdgeOptions()
     opts.add_experimental_option("debuggerAddress", "127.0.0.1:9223")
 
@@ -206,3 +227,4 @@ if __name__ == "__main__":
 "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" ^
   --remote-debugging-port=9223 ^
   --user-data-dir="%TEMP%\edge_selenium_profile"
+
