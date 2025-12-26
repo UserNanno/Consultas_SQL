@@ -1,3 +1,21 @@
+@echo off
+echo Iniciando Edge en modo debug...
+
+REM Abrir Edge con puerto 9222 y perfil separado
+start "" msedge.exe ^
+  --remote-debugging-port=9222 ^
+  --user-data-dir="%~dp0edge_profile"
+
+REM Esperar a que Edge levante
+timeout /t 5 /nobreak >nul
+
+echo Ejecutando script...
+python main.py
+
+pause
+
+
+
 msedge.exe --remote-debugging-port=9222 --user-data-dir="%TEMP%\edge-debug"
 
 
@@ -187,4 +205,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
