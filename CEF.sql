@@ -1,3 +1,8 @@
-Aqui se guardo msedgedriver.exe
+"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" ^
+  --remote-debugging-port=9223 ^
+  --user-data-dir="%TEMP%\edge_selenium_profile"
 
-C:\Users\T72496\.cache\selenium\msedgedriver\win64\143.0.3650.96\msedgedriver.exe
+
+https://extranet.sbs.gob.pe/app/login.jsp
+
+https://m365.cloud.microsoft/chat/?auth=2
