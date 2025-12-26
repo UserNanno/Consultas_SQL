@@ -1,26 +1,23 @@
-
-import os
 import time
+from pathlib import Path
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.edge.options import Options as EdgeOptions
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
 
-CHROMEDRIVER_PATH = r"D:\Datos de Usuarios\T72496\Downloads\chromedriver-win64\chromedriver-win64\chromedriver.exe"
-
 URL_LOGIN = "https://extranet.sbs.gob.pe/app/login.jsp"
 URL_COPILOT = "https://m365.cloud.microsoft/chat/?auth=2"
 
-IMG_PATH = r"D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic\captura.png"
-
 USUARIO = "T10595"
 CLAVE = "44445555"  # solo números
+
+BASE_DIR = Path(__file__).resolve().parent
+IMG_PATH = BASE_DIR / "output" / "captura.png"
 
 
 # COPILOT HELPERS
@@ -73,14 +70,12 @@ def click_send_with_retries(driver, wait, attempts=3):
     return False
 
 
-def copilot_ask_from_image(driver, img_path):
+def copilot_ask_from_image(driver, img_path: Path):
     wait = WebDriverWait(driver, 60)
-
     driver.get(URL_COPILOT)
 
-    # subir imagen
     file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']")))
-    file_input.send_keys(img_path)
+    file_input.send_keys(str(img_path))
 
     try:
         wait_send_enabled(driver, wait)
@@ -90,14 +85,16 @@ def copilot_ask_from_image(driver, img_path):
     box = wait.until(EC.element_to_be_clickable((By.ID, "m365-chat-editor-target-element")))
     box.click()
 
-    prompt = "Lee el texto de la imagen y transcribe exactamente los 4 caracteres visibles. Ignora cualquier línea, raya, marca o distorsión superpuesta. Responde únicamente con esos 4 caracteres, sin añadir nada más"
-    # intenta send_keys
+    prompt = (
+        "Lee el texto de la imagen y transcribe exactamente los 4 caracteres visibles. "
+        "Ignora cualquier línea, raya, marca o distorsión superpuesta. "
+        "Responde únicamente con esos 4 caracteres, sin añadir nada más"
+    )
+
     box.send_keys(Keys.CONTROL, "a")
     box.send_keys(prompt)
-    # refuerzo JS
     set_contenteditable_text(driver, box, prompt)
 
-    # enviar: Enter + fallback a botón
     sent = False
     try:
         ActionChains(driver).move_to_element(box).click(box).send_keys(Keys.ENTER).perform()
@@ -108,7 +105,6 @@ def copilot_ask_from_image(driver, img_path):
     if not sent:
         click_send_with_retries(driver, wait, attempts=3)
     else:
-        # si Enter "no pego", a veces el botón sigue habilitado => click para asegurar
         time.sleep(0.8)
         try:
             btn = driver.find_element(
@@ -121,7 +117,6 @@ def copilot_ask_from_image(driver, img_path):
         except Exception:
             pass
 
-    # esperar respuesta
     def last_p_with_text(drv):
         ps = drv.find_elements(By.CSS_SELECTOR, "p")
         texts = [p.text.strip() for p in ps if p.is_displayed() and p.text.strip()]
@@ -130,35 +125,35 @@ def copilot_ask_from_image(driver, img_path):
     result = wait.until(lambda d: last_p_with_text(d))
     return result
 
-# MAIN
+
 def main():
-    # Conectar Chrome en DEBUG ya abierto en 9222
-    opts = Options()
+    # Conectar Edge en DEBUG ya abierto en 9222
+    opts = EdgeOptions()
     opts.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
 
-    driver = webdriver.Chrome(service=Service(CHROMEDRIVER_PATH), options=opts)
+    # IMPORTANTÍSIMO: SIN Service(executable_path). Así Selenium Manager gestiona el driver.
+    driver = webdriver.Edge(options=opts)
+
     wait = WebDriverWait(driver, 30)
 
     driver.get(URL_LOGIN)
     form_handle = driver.current_window_handle
 
-    img_el = wait.until(EC.presence_of_element_located((By.ID, "CaptchaImgID")))
-    os.makedirs(os.path.dirname(IMG_PATH), exist_ok=True)
-    img_el.screenshot(IMG_PATH)
+    img_el = wait.until(EC.presence_of_element_located((By.ID, "testImgID")))
+    IMG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    img_el.screenshot(str(IMG_PATH))
     print("Captura guardada:", IMG_PATH)
 
     driver.switch_to.new_window('tab')
-    copilot_handle = driver.current_window_handle
-
     copilot_text = copilot_ask_from_image(driver, IMG_PATH)
     print("Copilot devolvió:", copilot_text)
 
     driver.close()
     driver.switch_to.window(form_handle)
 
-    inp_captcha = wait.until(EC.presence_of_element_located((By.ID, "c_c_captcha")))
-    inp_captcha.clear()
-    inp_captcha.send_keys(copilot_text)
+    inp_test = wait.until(EC.presence_of_element_located((By.ID, "c_c_test")))
+    inp_test.clear()
+    inp_test.send_keys(copilot_text)
 
     inp_user = wait.until(EC.presence_of_element_located((By.ID, "c_c_usuario")))
     inp_user.clear()
@@ -184,7 +179,6 @@ def main():
     btn.click()
 
     print("Flujo completo")
-
 
 
 if __name__ == "__main__":
