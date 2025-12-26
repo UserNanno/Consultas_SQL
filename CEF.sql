@@ -1,1 +1,6 @@
-https://storage.googleapis.com/chrome-for-testing-public/143.0.7499.169/win64/chromedriver-win64.zip
+from selenium import webdriver
+
+driver = webdriver.Edge()
+driver.get("https://example.com")
+print(driver.title)
+driver.quit()
