@@ -1,230 +1,35 @@
-import time
-from pathlib import Path
-import sys
+Mira he tenido que crear un pip.ini en esta ruta C:\Users\T72496\pip
 
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.edge.options import Options as EdgeOptions
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.action_chains import ActionChains
-
-EDGE_EXE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-DEBUG_PORT = 9223
-
-URL_LOGIN = "https://extranet.sbs.gob.pe/app/login.jsp"
-URL_COPILOT = "https://m365.cloud.microsoft/chat/?auth=2"
-
-USUARIO = "T10595"
-CLAVE = "44445555"  # solo números
-
-if getattr(sys, 'frozen', False):
-    BASE_DIR = Path(sys.executable).resolve().parent
-else:
-    BASE_DIR = Path(__file__).resolve().parent
-
-IMG_PATH = BASE_DIR / "output" / "captura.png"
-
-def ensure_edge_debug():
-    profile_dir = Path(tempfile.gettempdir()) / "edge_selenium_profile"
-
-    args = [
-        EDGE_EXE,
-        f"--remote-debugging-port={DEBUG_PORT}",
-        f"--user-data-dir={profile_dir}",
-        # opcionales:
-        "--new-window",
-        "--start-maximized",
-    ]
-
-    # Abre Edge (no bloquea)
-    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # Dale unos segundos a Edge para levantar el puerto
-    time.sleep(2.5)
-    
-# COPILOT HELPERS
-def wait_send_enabled(driver, wait):
-    def _cond(d):
-        try:
-            btn = d.find_element(
-                By.CSS_SELECTOR,
-                "button[type='submit'][aria-label='Enviar'], button[type='submit'][title='Enviar']"
-            )
-            disabled_attr = btn.get_attribute("disabled")
-            aria_disabled = (btn.get_attribute("aria-disabled") or "").lower()
-            if disabled_attr is None and aria_disabled != "true":
-                return btn
-        except Exception:
-            return None
-        return None
-
-    return wait.until(_cond)
+pip.ini:
 
 
-def set_contenteditable_text(driver, element, text):
-    driver.execute_script(
-        """
-        const el = arguments[0];
-        const txt = arguments[1];
-        el.focus();
-        el.innerText = txt;
-        el.dispatchEvent(new InputEvent('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        """,
-        element, text
-    )
+[global]
+index-url = https://artifactory.lima.bcp.com.pe/artifactory/api/pypi/python-pypi-cache/simple
+trusted-host = artifactory.lima.bcp.com.pe
 
+Y he tenido que hacer: pip install --no-deps "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\Dependencias\pyinstaller-6.17.0-py3-none-win_amd64.whl"
 
-def click_send_with_retries(driver, wait, attempts=3):
-    last_err = None
-    for _ in range(attempts):
-        try:
-            btn = wait_send_enabled(driver, wait)
-            try:
-                btn.click()
-            except Exception:
-                driver.execute_script("arguments[0].click();", btn)
-            return True
-        except Exception as e:
-            last_err = e
-            time.sleep(0.6)
-    print("No se pudo clicar Enviar tras reintentos:", repr(last_err))
-    return False
+aca da librería que tenia que usar
 
+(venv) D:\Datos de Usuarios\T72496\Desktop\PrismaProject\Dependencias>dir
+ El volumen de la unidad D no tiene etiqueta.
+ El número de serie del volumen es: E87C-EAAA
 
-def copilot_ask_from_image(driver, img_path: Path):
-    wait = WebDriverWait(driver, 60)
-    driver.get(URL_COPILOT)
+ Directorio de D:\Datos de Usuarios\T72496\Desktop\PrismaProject\Dependencias
 
-    file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']")))
-    file_input.send_keys(str(img_path))
-
-    try:
-        wait_send_enabled(driver, wait)
-    except TimeoutException:
-        pass
-
-    box = wait.until(EC.element_to_be_clickable((By.ID, "m365-chat-editor-target-element")))
-    box.click()
-
-    prompt = (
-        "Lee el texto de la imagen y transcribe exactamente los 4 caracteres visibles. "
-        "Ignora cualquier línea, raya, marca o distorsión superpuesta. "
-        "Responde únicamente con esos 4 caracteres, sin añadir nada más"
-    )
-
-    box.send_keys(Keys.CONTROL, "a")
-    box.send_keys(prompt)
-    set_contenteditable_text(driver, box, prompt)
-
-    sent = False
-    try:
-        ActionChains(driver).move_to_element(box).click(box).send_keys(Keys.ENTER).perform()
-        sent = True
-    except Exception:
-        sent = False
-
-    if not sent:
-        click_send_with_retries(driver, wait, attempts=3)
-    else:
-        time.sleep(0.8)
-        try:
-            btn = driver.find_element(
-                By.CSS_SELECTOR,
-                "button[type='submit'][aria-label='Enviar'], button[type='submit'][title='Enviar']"
-            )
-            aria_disabled = (btn.get_attribute("aria-disabled") or "").lower()
-            if aria_disabled != "true" and btn.get_attribute("disabled") is None:
-                click_send_with_retries(driver, wait, attempts=3)
-        except Exception:
-            pass
-
-    def last_p_with_text(drv):
-        ps = drv.find_elements(By.CSS_SELECTOR, "p")
-        texts = [p.text.strip() for p in ps if p.is_displayed() and p.text.strip()]
-        return texts[-1] if texts else None
-
-    result = wait.until(lambda d: last_p_with_text(d))
-    return result
-
-
-def main():
-    ensure_edge_debug()
-    
-    opts = EdgeOptions()
-    opts.add_experimental_option("debuggerAddress", "127.0.0.1:9223")
-
-    # IMPORTANTÍSIMO: SIN Service(executable_path). Así Selenium Manager gestiona el driver.
-    driver = webdriver.Edge(options=opts)
-
-    driver.set_window_size(1357, 924)
-    driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
-        "width": 1357,
-        "height": 924,
-        "deviceScaleFactor": 1,
-        "mobile": False
-    })
-
-    wait = WebDriverWait(driver, 30)
-
-    driver.get(URL_LOGIN)
-    form_handle = driver.current_window_handle
-
-    img_el = wait.until(EC.presence_of_element_located((By.ID, "CaptchaImgID")))
-    IMG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    img_el.screenshot(str(IMG_PATH))
-    print("Captura guardada:", IMG_PATH)
-
-    driver.switch_to.new_window('tab')
-    copilot_text = copilot_ask_from_image(driver, IMG_PATH)
-    print("Copilot devolvió:", copilot_text)
-
-    driver.close()
-    driver.switch_to.window(form_handle)
-
-    inp_captcha = wait.until(EC.presence_of_element_located((By.ID, "c_c_captcha")))
-    inp_captcha.clear()
-    inp_captcha.send_keys(copilot_text)
-
-    inp_user = wait.until(EC.presence_of_element_located((By.ID, "c_c_usuario")))
-    inp_user.clear()
-    inp_user.send_keys(USUARIO)
-
-    wait.until(EC.presence_of_element_located((By.ID, "ulKeypad")))
-
-    try:
-        driver.find_element(By.CSS_SELECTOR, "#ulKeypad li.WEB_zonaIngresobtnBorrar").click()
-    except Exception:
-        pass
-
-    for d in CLAVE:
-        tecla = wait.until(
-            EC.element_to_be_clickable(
-                (By.XPATH, f"//ul[@id='ulKeypad']//li[normalize-space()='{d}']")
-            )
-        )
-        tecla.click()
-        time.sleep(0.2)
-
-    btn = wait.until(EC.element_to_be_clickable((By.ID, "btnIngresar")))
-    btn.click()
-
-    print("Flujo completo")
-
-
-if __name__ == "__main__":
-    main()
+26/12/2025  13:37    <DIR>          .
+26/12/2025  13:36    <DIR>          ..
+26/12/2025  13:29           163,286 certifi-2025.10.5-py3-none-any.whl
+26/12/2025  13:37               128 pipDependencias.txt
+26/12/2025  13:37         1,378,685 pyinstaller-6.17.0-py3-none-win_amd64.whl
+26/12/2025  13:12         9,655,249 selenium-4.39.0-py3-none-any.whl
+26/12/2025  13:32            44,614 typing_extensions-4.15.0-py3-none-any.whl
+26/12/2025  13:31           131,182 urllib3-2.6.2-py3-none-any.whl
+26/12/2025  13:33           176,841 websockets-15.0.1-cp312-cp312-win_amd64.whl
+26/12/2025  13:34            82,616 websocket_client-1.9.0-py3-none-any.whl
+               8 archivos     11,632,601 bytes
+               2 dirs  257,074,970,624 bytes libres
 
 
 
-
-
-
-
-"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" ^
-  --remote-debugging-port=9223 ^
-  --user-data-dir="%TEMP%\edge_selenium_profile"
-
+Ahora qu eya tengo python 3.12 y las dependencias necesarias. Como empaqueto para que no tenga problema los usuarios al ejecuta
