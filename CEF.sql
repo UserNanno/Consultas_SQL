@@ -1,21 +1,21 @@
-from pyspark.sql import functions as F
+Aqui no te estas olvidando que ya tengo esto?
 
-def cast_decimal(colname, scale=2, precision=18):
-    return F.col(colname).cast(f"decimal({precision},{scale})")
+    # =========================================================
+# PARAMETROS AUTONOMIA
+# =========================================================
+gerentes = ["U17293"]
+supervisores = ["U17560", "U13421", "S18795", "U18900", "E12624", "U23436"]
 
-# ... dentro de load_sf_productos_validos, luego de normalizar y parsear FECCREACION:
-df = (
-    df
-    .withColumn("MTOSOLICITADO", cast_decimal("MTOSOLICITADO"))
-    .withColumn("MTOAPROBADO", cast_decimal("MTOAPROBADO"))
-    .withColumn("MTOOFERTADO", cast_decimal("MTOOFERTADO"))
-    .withColumn("MTODESEMBOLSADO", cast_decimal("MTODESEMBOLSADO"))
-)
+def rol_actor(col_mat):
+    return (
+        F.when(col_mat.isin(gerentes), F.lit("GERENTE"))
+         .when(col_mat.isin(supervisores), F.lit("SUPERVISOR"))
+         .when(col_mat.isNotNull(), F.lit("ANALISTA"))
+         .otherwise(F.lit(None))
+    )
 
-
-
-
-
+def es_sup_o_ger(col_mat):
+    return col_mat.isin(gerentes + supervisores)
 
 from pyspark.sql import functions as F
 
@@ -87,3 +87,4 @@ df_final = add_matsuperior_from_organico(df_final, df_org)
 df_final = aplicar_regla_autonomia_monto(df_final)
 
 # 10) SELECT FINAL...
+
