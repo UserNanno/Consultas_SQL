@@ -1,4 +1,57 @@
-from pyspark.sql import functions as F
+df_autonomia = (
+    df_aut_latest
+    .withColumn("ROL_MAT1", rol_actor(F.col("MAT1_AUT")))
+    .withColumn("ROL_MAT2", rol_actor(F.col("MAT2_AUT")))
+    .withColumn(
+        "FLGAUTONOMIAOBSERVADA",
+        F.when(
+            (F.col("MAT1_AUT").isNotNull()) & (F.col("MAT2_AUT").isNotNull()) &
+            (F.col("ROL_MAT1").isin("GERENTE", "SUPERVISOR")) &
+            (F.col("ROL_MAT2").isin("GERENTE", "SUPERVISOR")) &
+            (F.col("ROL_MAT1") != F.col("ROL_MAT2")),
+            F.lit(1)
+        ).otherwise(F.lit(0))
+    )
+    .withColumn(
+        "NIVELAUTONOMIA",
+        F.when((F.col("ROL_MAT1") == "GERENTE") & (F.col("ROL_MAT2") == "GERENTE"), F.lit("GERENTE"))
+         .when((F.col("ROL_MAT1") == "SUPERVISOR") & (F.col("ROL_MAT2") == "SUPERVISOR"), F.lit("SUPERVISOR"))
+         .when(F.col("FLGAUTONOMIAOBSERVADA") == 1, F.col("ROL_MAT1"))
+         .when((~es_sup_o_ger(F.col("MAT1_AUT"))) & (~es_sup_o_ger(F.col("MAT2_AUT"))), F.lit("ANALISTA"))
+         .otherwise(F.coalesce(F.col("ROL_MAT1"), F.col("ROL_MAT2")))
+    )
+    .withColumn(
+        "MATAUTONOMIA",
+        F.when((F.col("ROL_MAT1") == "GERENTE") & (F.col("ROL_MAT2") == "GERENTE"), F.col("MAT1_AUT"))
+         .when((F.col("ROL_MAT1") == "SUPERVISOR") & (F.col("ROL_MAT2") == "SUPERVISOR"), F.col("MAT1_AUT"))
+         .when(F.col("FLGAUTONOMIAOBSERVADA") == 1, F.col("MAT1_AUT"))
+         .when((~es_sup_o_ger(F.col("MAT1_AUT"))) & (F.col("MAT1_AUT").isNotNull()), F.col("MAT1_AUT"))
+         .otherwise(F.coalesce(F.col("MAT1_AUT"), F.col("MAT2_AUT")))
+    )
+    # ✅ FLGAUTONOMIA solo si la autonomía por paso quedó bien formada
+    .withColumn(
+        "FLGAUTONOMIA",
+        F.when(F.col("NIVELAUTONOMIA").isNotNull() & F.col("MATAUTONOMIA").isNotNull(), F.lit(1)).otherwise(F.lit(0))
+    )
+    .select(
+        "CODSOLICITUD",
+        "FLGAUTONOMIA",
+        "FLGAUTONOMIAOBSERVADA",
+        "NIVELAUTONOMIA",
+        "MATAUTONOMIA",
+        "PASO_AUTONOMIA",
+        "TS_AUTONOMIA",
+    )
+)
+
+
+
+
+
+
+
+
+    
 
 GERENTE_MAT = "U17293"
 
@@ -116,3 +169,4 @@ def aplicar_reglas_autonomia_monto_y_validar(df_final):
     df = df.drop("MTOAPROBADO_DEC")
 
     return df
+
