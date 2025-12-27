@@ -1,6 +1,7 @@
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-
+from pyspark.sql.types import DecimalType
+    
 # =========================================================
 # PATHS
 # =========================================================
@@ -542,15 +543,36 @@ def apply_powerapps_fallback(df_final, df_apps):
 
 
 
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
+from pyspark.sql.types import DecimalType
 
+def to_decimal_monto(col):
+    # soporta "108000.00" y también "108,000.00" o "108000,00" o "108.000,00"
+    s = col.cast("string")
+    s = F.regexp_replace(s, u"\u00A0", " ")
+    s = F.regexp_replace(s, u"\u202F", " ")
+    s = F.trim(s)
 
+    # Detecta formato:
+    # - si tiene "," y "." -> asumimos "." miles y "," decimal => quitar "." y cambiar "," a "."
+    # - si solo tiene "," -> asumimos "," decimal => cambiar "," a "."
+    # - si solo tiene "." -> asumimos "." decimal (dejar)
+    s = F.when(
+            (F.instr(s, ",") > 0) & (F.instr(s, ".") > 0),
+            F.regexp_replace(s, r"\.", "")  # quita puntos (miles)
+        ).otherwise(s)
 
+    s = F.when(F.instr(s, ",") > 0, F.regexp_replace(s, ",", ".")).otherwise(s)
 
+    # quita espacios
+    s = F.regexp_replace(s, r"\s+", "")
 
+    return s.cast(DecimalType(18, 2))
 
 
 # =========================================================
-# PIPELINE
+# PIPELINE (desde aquí hacia abajo)
 # =========================================================
 
 # 1) STAGING
@@ -572,6 +594,7 @@ is_cef = F.col("PROCESO").isin(
     "SFCP APROBACIONES EDUCATIVO",
     "CO SOLICITUD APROBACIONES"
 )
+
 paso_tc_analista   = (F.col("NBRPASO") == "APROBACION DE CREDITOS ANALISTA")
 paso_tc_supervisor = (F.col("NBRPASO") == "APROBACION DE CREDITOS SUPERVISOR")
 paso_tc_gerente    = (F.col("NBRPASO") == "APROBACION DE CREDITOS GERENTE")
@@ -583,33 +606,33 @@ es_paso_base = (is_tc & paso_tc_analista) | (is_cef & paso_cef_analista)
 w_base = Window.partitionBy("CODSOLICITUD").orderBy(F.col("FECHORINICIOEVALUACION").desc())
 
 df_base_latest = (
-   df_estados_enriq
-     .filter(es_paso_base)
-     .withColumn("rn_base", F.row_number().over(w_base))
-     .filter(F.col("rn_base") == 1)
-     .select(
-         "CODSOLICITUD",
-         F.col("MATORGANICO").alias("MAT1_ESTADOS"),        # desde NBRULTACTOR enriquecido
-         F.col("MATORGANICOPASO").alias("MAT2_ESTADOS"),    # desde NBRULTACTORPASO enriquecido
-         F.col("FECHORINICIOEVALUACION").alias("TS_BASE_ESTADOS")
-     )
+    df_estados_enriq
+      .filter(es_paso_base)
+      .withColumn("rn_base", F.row_number().over(w_base))
+      .filter(F.col("rn_base") == 1)
+      .select(
+          "CODSOLICITUD",
+          F.col("MATORGANICO").alias("MAT1_ESTADOS"),
+          F.col("MATORGANICOPASO").alias("MAT2_ESTADOS"),
+          F.col("FECHORINICIOEVALUACION").alias("TS_BASE_ESTADOS")
+      )
 )
 
 df_matanalista_estados = (
-   df_base_latest
-     .withColumn(
-         "MATANALISTA_ESTADOS",
-         F.when(F.col("MAT1_ESTADOS").isNotNull() & (~es_sup_o_ger(F.col("MAT1_ESTADOS"))), F.col("MAT1_ESTADOS"))
-          .when(F.col("MAT2_ESTADOS").isNotNull() & (~es_sup_o_ger(F.col("MAT2_ESTADOS"))), F.col("MAT2_ESTADOS"))
-          .otherwise(F.lit(None).cast("string"))
-     )
-     .withColumn(
-         "ORIGEN_MATANALISTA_ESTADOS",
-         F.when(F.col("MAT1_ESTADOS").isNotNull() & (~es_sup_o_ger(F.col("MAT1_ESTADOS"))), F.lit("ESTADOS_MAT1"))
-          .when(F.col("MAT2_ESTADOS").isNotNull() & (~es_sup_o_ger(F.col("MAT2_ESTADOS"))), F.lit("ESTADOS_MAT2"))
-          .otherwise(F.lit(None))
-     )
-     .select("CODSOLICITUD", "MATANALISTA_ESTADOS", "ORIGEN_MATANALISTA_ESTADOS", "TS_BASE_ESTADOS")
+    df_base_latest
+      .withColumn(
+          "MATANALISTA_ESTADOS",
+          F.when(F.col("MAT1_ESTADOS").isNotNull() & (~es_sup_o_ger(F.col("MAT1_ESTADOS"))), F.col("MAT1_ESTADOS"))
+           .when(F.col("MAT2_ESTADOS").isNotNull() & (~es_sup_o_ger(F.col("MAT2_ESTADOS"))), F.col("MAT2_ESTADOS"))
+           .otherwise(F.lit(None).cast("string"))
+      )
+      .withColumn(
+          "ORIGEN_MATANALISTA_ESTADOS",
+          F.when(F.col("MAT1_ESTADOS").isNotNull() & (~es_sup_o_ger(F.col("MAT1_ESTADOS"))), F.lit("ESTADOS_MAT1"))
+           .when(F.col("MAT2_ESTADOS").isNotNull() & (~es_sup_o_ger(F.col("MAT2_ESTADOS"))), F.lit("ESTADOS_MAT2"))
+           .otherwise(F.lit(None))
+      )
+      .select("CODSOLICITUD", "MATANALISTA_ESTADOS", "ORIGEN_MATANALISTA_ESTADOS", "TS_BASE_ESTADOS")
 )
 
 # Snapshot productos 1 fila por CODSOLICITUD (para MAT3/MAT4)
@@ -630,16 +653,11 @@ df_matanalista_productos = (
 df_matanalista_final = (
     df_matanalista_estados
       .join(df_matanalista_productos, on="CODSOLICITUD", how="left")
-      # Limpia MAT3/MAT4 si son sup/ger
       .withColumn("MAT3_OK", F.when(~es_sup_o_ger(F.col("MAT3_PRODUCTOS")), F.col("MAT3_PRODUCTOS")))
       .withColumn("MAT4_OK", F.when(~es_sup_o_ger(F.col("MAT4_PRODUCTOS")), F.col("MAT4_PRODUCTOS")))
       .withColumn(
           "MATANALISTA_FINAL",
-          F.coalesce(
-              F.col("MATANALISTA_ESTADOS"),   # MAT1/MAT2 ya filtrado por tu lógica
-              F.col("MAT3_OK"),               # MAT3
-              F.col("MAT4_OK")                # MAT4
-          )
+          F.coalesce(F.col("MATANALISTA_ESTADOS"), F.col("MAT3_OK"), F.col("MAT4_OK"))
       )
       .withColumn(
           "ORIGEN_MATANALISTA",
@@ -662,58 +680,56 @@ w_aut = Window.partitionBy("CODSOLICITUD").orderBy(F.col("FECHORINICIOEVALUACION
 
 df_aut_latest = (
     df_estados_enriq
-    .filter(es_paso_autonomia)
-    .withColumn("rn_aut", F.row_number().over(w_aut))
-    .filter(F.col("rn_aut") == 1)
-    .select(
-        "CODSOLICITUD",
-        F.col("MATORGANICO").alias("MAT1_AUT"),
-        F.col("MATORGANICOPASO").alias("MAT2_AUT"),
-        F.col("NBRPASO").alias("PASO_AUTONOMIA"),
-        F.col("FECHORINICIOEVALUACION").alias("TS_AUTONOMIA"),
-    )
+      .filter(es_paso_autonomia)
+      .withColumn("rn_aut", F.row_number().over(w_aut))
+      .filter(F.col("rn_aut") == 1)
+      .select(
+          "CODSOLICITUD",
+          F.col("MATORGANICO").alias("MAT1_AUT"),
+          F.col("MATORGANICOPASO").alias("MAT2_AUT"),
+          F.col("NBRPASO").alias("PASO_AUTONOMIA"),
+          F.col("FECHORINICIOEVALUACION").alias("TS_AUTONOMIA"),
+      )
 )
 
 df_autonomia = (
     df_aut_latest
-    .withColumn("ROL_MAT1", rol_actor(F.col("MAT1_AUT")))
-    .withColumn("ROL_MAT2", rol_actor(F.col("MAT2_AUT")))
-    .withColumn(
-        "FLGAUTONOMIAOBSERVADA",
-        F.when(
-            (F.col("MAT1_AUT").isNotNull()) & (F.col("MAT2_AUT").isNotNull()) &
-            (F.col("ROL_MAT1").isin("GERENTE", "SUPERVISOR")) &
-            (F.col("ROL_MAT2").isin("GERENTE", "SUPERVISOR")) &
-            (F.col("ROL_MAT1") != F.col("ROL_MAT2")),
-            F.lit(1)
-        ).otherwise(F.lit(0))
-    )
-    .withColumn(
-        "NIVELAUTONOMIA",
-        F.when((F.col("ROL_MAT1") == "GERENTE") & (F.col("ROL_MAT2") == "GERENTE"), F.lit("GERENTE"))
-         .when((F.col("ROL_MAT1") == "SUPERVISOR") & (F.col("ROL_MAT2") == "SUPERVISOR"), F.lit("SUPERVISOR"))
-         .when(F.col("FLGAUTONOMIAOBSERVADA") == 1, F.col("ROL_MAT1"))
-         .when((~es_sup_o_ger(F.col("MAT1_AUT"))) & (~es_sup_o_ger(F.col("MAT2_AUT"))), F.lit("ANALISTA"))
-         .otherwise(F.coalesce(F.col("ROL_MAT1"), F.col("ROL_MAT2")))
-    )
-    .withColumn(
-        "MATAUTONOMIA",
-        F.when((F.col("ROL_MAT1") == "GERENTE") & (F.col("ROL_MAT2") == "GERENTE"), F.col("MAT1_AUT"))
-         .when((F.col("ROL_MAT1") == "SUPERVISOR") & (F.col("ROL_MAT2") == "SUPERVISOR"), F.col("MAT1_AUT"))
-         .when(F.col("FLGAUTONOMIAOBSERVADA") == 1, F.col("MAT1_AUT"))
-         .when((~es_sup_o_ger(F.col("MAT1_AUT"))) & (F.col("MAT1_AUT").isNotNull()), F.col("MAT1_AUT"))
-         .otherwise(F.coalesce(F.col("MAT1_AUT"), F.col("MAT2_AUT")))
-    )
-    .withColumn("FLGAUTONOMIA", F.lit(1))
-    .select(
-        "CODSOLICITUD",
-        "FLGAUTONOMIA",
-        "FLGAUTONOMIAOBSERVADA",
-        "NIVELAUTONOMIA",
-        "MATAUTONOMIA",
-        "PASO_AUTONOMIA",
-        "TS_AUTONOMIA",
-    )
+      .withColumn("ROL_MAT1", rol_actor(F.col("MAT1_AUT")))
+      .withColumn("ROL_MAT2", rol_actor(F.col("MAT2_AUT")))
+      .withColumn(
+          "FLGAUTONOMIAOBSERVADA",
+          F.when(
+              (F.col("MAT1_AUT").isNotNull()) & (F.col("MAT2_AUT").isNotNull()) &
+              (F.col("ROL_MAT1").isin("GERENTE", "SUPERVISOR")) &
+              (F.col("ROL_MAT2").isin("GERENTE", "SUPERVISOR")) &
+              (F.col("ROL_MAT1") != F.col("ROL_MAT2")),
+              F.lit(1)
+          ).otherwise(F.lit(0))
+      )
+      .withColumn(
+          "NIVELAUTONOMIA",
+          F.when((F.col("ROL_MAT1") == "GERENTE") & (F.col("ROL_MAT2") == "GERENTE"), F.lit("GERENTE"))
+           .when((F.col("ROL_MAT1") == "SUPERVISOR") & (F.col("ROL_MAT2") == "SUPERVISOR"), F.lit("SUPERVISOR"))
+           .when(F.col("FLGAUTONOMIAOBSERVADA") == 1, F.col("ROL_MAT1"))
+           .when((~es_sup_o_ger(F.col("MAT1_AUT"))) & (~es_sup_o_ger(F.col("MAT2_AUT"))), F.lit("ANALISTA"))
+           .otherwise(F.coalesce(F.col("ROL_MAT1"), F.col("ROL_MAT2")))
+      )
+      .withColumn(
+          "MATAUTONOMIA",
+          F.when((F.col("ROL_MAT1") == "GERENTE") & (F.col("ROL_MAT2") == "GERENTE"), F.col("MAT1_AUT"))
+           .when((F.col("ROL_MAT1") == "SUPERVISOR") & (F.col("ROL_MAT2") == "SUPERVISOR"), F.col("MAT1_AUT"))
+           .when(F.col("FLGAUTONOMIAOBSERVADA") == 1, F.col("MAT1_AUT"))
+           .when((~es_sup_o_ger(F.col("MAT1_AUT"))) & (F.col("MAT1_AUT").isNotNull()), F.col("MAT1_AUT"))
+           .otherwise(F.coalesce(F.col("MAT1_AUT"), F.col("MAT2_AUT")))
+      )
+      .select(
+          "CODSOLICITUD",
+          "FLGAUTONOMIAOBSERVADA",
+          "NIVELAUTONOMIA",
+          "MATAUTONOMIA",
+          "PASO_AUTONOMIA",
+          "TS_AUTONOMIA",
+      )
 )
 
 # 5) UNIVERSO (ANCLADO A ESTADOS)
@@ -721,22 +737,20 @@ df_universo = df_estados_enriq.select("CODSOLICITUD").distinct()
 
 df_final_autonomias = (
     df_universo
-    .join(df_matanalista_final, on="CODSOLICITUD", how="left")
-    .join(df_autonomia, on="CODSOLICITUD", how="left")
-    .withColumn("FLGAUTONOMIA", F.coalesce(F.col("FLGAUTONOMIA"), F.lit(0)))
-    .withColumn("FLGAUTONOMIAOBSERVADA", F.coalesce(F.col("FLGAUTONOMIAOBSERVADA"), F.lit(0)))
+      .join(df_matanalista_final, on="CODSOLICITUD", how="left")
+      .join(df_autonomia, on="CODSOLICITUD", how="left")
+      .withColumn("FLGAUTONOMIAOBSERVADA", F.coalesce(F.col("FLGAUTONOMIAOBSERVADA"), F.lit(0)))
 )
-# df_final_autonomias: 1 fila por CODSOLICITUD (solo las que existen en ESTADOS)
 
 # 6) SNAPSHOTS DE ESTADOS + PRODUCTOS
-df_last_estado = build_last_estado_snapshot(df_estados_enriq)    # base final
-df_prod_snap   = build_productos_snapshot(df_productos_enriq)    # solo atributos
+df_last_estado = build_last_estado_snapshot(df_estados_enriq)
+df_prod_snap   = build_productos_snapshot(df_productos_enriq)
 
-# 7) ENSAMBLE FINAL (base = df_last_estado, para que NO entren codsol solo de productos)
+# 7) ENSAMBLE FINAL (base = df_last_estado)
 df_final = (
     df_last_estado
-    .join(df_final_autonomias, on="CODSOLICITUD", how="left")
-    .join(df_prod_snap, on="CODSOLICITUD", how="left")
+      .join(df_final_autonomias, on="CODSOLICITUD", how="left")
+      .join(df_prod_snap, on="CODSOLICITUD", how="left")
 )
 
 # 8) PRODUCTO (TC/CEF) + MATSUPERIOR (desde orgánico usando MATANALISTA_FINAL + mes)
@@ -746,43 +760,81 @@ df_final = add_matsuperior_from_organico(df_final, df_org)
 # 9) POWERAPPS (fallback SOLO si sigue NULL) + motivos
 df_final = apply_powerapps_fallback(df_final, df_apps)
 
+# 9.1) Re-llenar MATSUPERIOR por si PowerApps completó MATANALISTA_FINAL
+df_final = add_matsuperior_from_organico(df_final, df_org)
 
+# 9.2) Montos a decimal
+df_final = df_final.withColumn("MTOAPROBADO_DEC", to_decimal_monto(F.col("MTOAPROBADO")))
 
+# 9.3) Autonomía por monto SOLO si NO hubo autonomía por PASO (MATAUTONOMIA null)
+cond_sin_aut_paso = F.col("MATAUTONOMIA").isNull()
 
+cond_monto_sup = (F.col("MTOAPROBADO_DEC") > F.lit(100000)) & (F.col("MTOAPROBADO_DEC") <= F.lit(240000))
+cond_monto_ger = (F.col("MTOAPROBADO_DEC") > F.lit(240000))
 
+mataut_monto = (
+    F.when(cond_monto_ger, F.lit("U17293"))
+     .when(cond_monto_sup, F.col("MATSUPERIOR"))
+)
 
+nivel_monto = (
+    F.when(cond_monto_ger, F.lit("GERENTE"))
+     .when(cond_monto_sup, F.lit("SUPERVISOR"))
+)
 
-
+df_final = (
+    df_final
+      .withColumn(
+          "MATAUTONOMIA_FINAL",
+          F.when(cond_sin_aut_paso, mataut_monto).otherwise(F.col("MATAUTONOMIA"))
+      )
+      .withColumn(
+          "NIVELAUTONOMIA_FINAL",
+          F.when(cond_sin_aut_paso, nivel_monto).otherwise(F.col("NIVELAUTONOMIA"))
+      )
+      .withColumn(
+          "AUTONOMIA_REGLA",
+          F.when(F.col("MATAUTONOMIA").isNotNull(), F.lit("PASO"))
+           .when(cond_sin_aut_paso & mataut_monto.isNotNull(), F.lit("MONTO"))
+           .otherwise(F.lit("SIN"))
+      )
+      # UN SOLO FLAG FINAL
+      .withColumn(
+          "FLGAUTONOMIA",
+          F.when(F.col("MATAUTONOMIA_FINAL").isNotNull(), F.lit(1)).otherwise(F.lit(0))
+      )
+      # Reemplaza columnas base por finales
+      .drop("MATAUTONOMIA", "NIVELAUTONOMIA")
+      .withColumnRenamed("MATAUTONOMIA_FINAL", "MATAUTONOMIA")
+      .withColumnRenamed("NIVELAUTONOMIA_FINAL", "NIVELAUTONOMIA")
+      .drop("MTOAPROBADO_DEC")
+)
 
 # 10) SELECT FINAL ORDENADO
 df_final = df_final.select(
-    # IDs
     "CODSOLICITUD",
     "PRODUCTO",
     "CODMESEVALUACION",
 
-    # Analista
     "TS_BASE_ESTADOS",
     "MATANALISTA_FINAL",
     "ORIGEN_MATANALISTA",
     "MATSUPERIOR",
 
-    # Autonomía
     "FLGAUTONOMIA",
     "FLGAUTONOMIAOBSERVADA",
     "NIVELAUTONOMIA",
     "MATAUTONOMIA",
+    "AUTONOMIA_REGLA",
     "PASO_AUTONOMIA",
     "TS_AUTONOMIA",
 
-    # Estados (snapshot último)
     "PROCESO",
     "ESTADOSOLICITUD",
     "ESTADOSOLICITUDPASO",
     "TS_ULTIMO_EVENTO_ESTADOS",
     "FECINICIOEVALUACION_ULT",
 
-    # Productos (snapshot último)
     "NBRPRODUCTO",
     "ETAPA",
     "TIPACCION",
@@ -793,14 +845,10 @@ df_final = df_final.select(
     "MTODESEMBOLSADO",
     "TS_PRODUCTOS",
 
-    # PowerApps (motivos)
     "MOTIVORESULTADOANALISTA",
     "MOTIVOMALADERIVACION",
     "SUBMOTIVOMALADERIVACION",
 )
-
-
-
 
 # 11) WRITE
 df_final.write \
