@@ -1,117 +1,82 @@
-%md
-## Objetivo del pipeline  
-### Consolidación de solicitudes de crédito (última foto)
+# 12.1 Staging
+df_org       = load_organico(spark, BASE_DIR_ORGANICO)
+df_org_tokens= build_org_tokens(df_org)
 
-Este pipeline construye una tabla consolidada con granularidad **1 fila por CODSOLICITUD**, que representa la **última foto del estado de cada solicitud de crédito**, orientada a tableros de seguimiento operativo y de desempeño.
+df_estados   = load_sf_estados(spark, PATH_SF_ESTADOS)
+df_productos = load_sf_productos_validos(spark, PATH_SF_PRODUCTOS)
+df_apps      = load_powerapps(spark, PATH_PA_SOLICITUDES)
 
-La tabla final integra información de **estado, producto, atribución y calidad**, resolviendo inconsistencias propias del flujo operativo y eliminando la dependencia de procesos manuales.
+# 12.2 Enriquecimiento con orgánico (matrículas)
+df_estados_enriq   = enrich_estados_con_organico(df_estados, df_org_tokens)
+df_productos_enriq = enrich_productos_con_organico(df_productos, df_org_tokens)
 
-**Fuente base (universo):**
-- `INFORMES_ESTADOS_*` (Salesforce), ya que contiene el tracking real del flujo de evaluación por pasos.
+# 12.3 Snapshots (1 fila por solicitud)
+df_last_estado = build_last_estado_snapshot(df_estados_enriq)
+df_prod_snap   = build_productos_snapshot(df_productos_enriq)
 
-**Regla de oro:**
-- El registro con la **mayor FECHORINICIOEVALUACION (timestamp)** determina el estado vigente de la solicitud:
-  - PROCESO  
-  - ESTADOSOLICITUD  
-  - ESTADOSOLICITUDPASO  
+# 12.4 Atribución analista final + origen (MAT1/MAT2/MAT3/MAT4)
+df_matanalista = build_matanalista_final(df_estados_enriq, df_prod_snap)
 
-**Fuentes de enriquecimiento:**
-- `INFORME_PRODUCTO_*`: atributos del producto y montos (1 registro por solicitud).
-- `POWERAPP_EDV.csv`: fuente complementaria utilizada como **COALESCE** y para captura de motivos y calidad.
+# 12.5 Ensamble final (base = último estado)
+df_final = (
+    df_last_estado
+    .join(df_matanalista, on="CODSOLICITUD", how="left")
+    .join(df_prod_snap.select(
+        "CODSOLICITUD",
+        "NBRPRODUCTO","ETAPA","TIPACCION","NBRDIVISA",
+        "MTOSOLICITADO","MTOAPROBADO","MTOOFERTADO","MTODESEMBOLSADO",
+        "TS_PRODUCTOS"
+    ), on="CODSOLICITUD", how="left")
+)
 
-**Estructura lógica de la tabla final:**
+# 12.6 Producto (TC/CEF)
+df_final = add_producto_tipo(df_final)
 
-- **Identidad / tiempo**
-  - CODSOLICITUD  
-  - CODMESEVALUACION  
-  - FECINICIOEVALUACION  
-  - FECFINEVALUACION  
+# 12.7 MATSUPERIOR por orgánico (mes + matrícula)
+df_final = add_matsuperior_from_organico(df_final, df_org)
 
-- **Estado actual de la solicitud**
-  - PROCESO  
-  - ESTADOSOLICITUD  
-  - ESTADOSOLICITUDPASO  
+# 12.8 PowerApps fallback + motivos
+df_final = apply_powerapps_fallback(df_final, df_apps)
 
-- **Detalle del producto (Salesforce Productos)**
-  - NBRPRODUCTO  
-  - ETAPA  
-  - TIPACCION  
-  - NBRDIVISA  
-  - MTOSOLICITADO  
-  - MTOAPROBADO  
-  - MTOOFERTADO  
-  - MTODESEMBOLSADO  
+# 12.9 Re-llenar MATSUPERIOR por si PowerApps completó MATANALISTA_FINAL
+df_final = add_matsuperior_from_organico(df_final, df_org)
 
-- **Calidad y motivos (PowerApps principalmente)**
-  - MOTIVORESULTADOANALISTA  
-  - MOTIVOMALADERIVACION  
-  - SUBMOTIVOMALADERIVACION  
+# 12.10 Selección final (sin autonomías)
+df_final = df_final.select(
+    "CODSOLICITUD",
+    "PRODUCTO",
+    "CODMESEVALUACION",
 
-- **Atribución**
-  - MATANALISTA_FINAL  
-  - ORIGEN_MATANALISTA  
-  - MATSUPERIOR  
+    "TS_BASE_ESTADOS",
+    "MATANALISTA_FINAL",
+    "ORIGEN_MATANALISTA",
+    "MATSUPERIOR",
 
-- **Autonomía** *(fuera del alcance en esta versión del pipeline base)*
-  - FLGAUTONOMIA  
-  - NIVELAUTONOMIA  
-  - MATAUTONOMIA  
+    "PROCESO",
+    "ESTADOSOLICITUD",
+    "ESTADOSOLICITUDPASO",
+    "TS_ULTIMO_EVENTO_ESTADOS",
+    "TS_FIN_ULTIMO_EVENTO_ESTADOS",
+    "FECINICIOEVALUACION_ULT",
+    "FECFINEVALUACION_ULT",
 
-**Restricción de datos (DAC):**
-- No se persisten nombres de personas.
-- Los nombres se utilizan únicamente de forma transitoria para mapear contra el orgánico y obtener **matrículas**.
+    "NBRPRODUCTO",
+    "ETAPA",
+    "TIPACCION",
+    "NBRDIVISA",
+    "MTOSOLICITADO",
+    "MTOAPROBADO",
+    "MTOOFERTADO",
+    "MTODESEMBOLSADO",
+    "TS_PRODUCTOS",
 
-
-
-
-
-
-
-
-
-
-
-%md
-## 7) Snapshots (1 fila por CODSOLICITUD)  
-### 7.1 Estados: “último evento” define estado vigente
-
-A partir de `INFORMES_ESTADOS_*`, se consolida la información a **1 fila por CODSOLICITUD**.
-
-Criterio de selección:
-- Se ordenan los registros por **FECHORINICIOEVALUACION (timestamp)** descendente.
-- En caso de empate, se utiliza **FECHORFINEVALUACION** como desempate.
-
-El registro más reciente determina:
-- PROCESO  
-- ESTADOSOLICITUD  
-- ESTADOSOLICITUDPASO  
-- CODMESEVALUACION  
-
-Este snapshot representa el **estado actual de la solicitud**.
+    "MOTIVORESULTADOANALISTA",
+    "MOTIVOMALADERIVACION",
+    "SUBMOTIVOMALADERIVACION",
+)
 
 
 
 
 
-
-
-
-
-
-%md
-## 7.2 Productos: 1 registro por CODSOLICITUD  
-### Selección del producto vigente
-
-A partir de `INFORME_PRODUCTO_*`, se consolida la información de producto a **1 fila por CODSOLICITUD**.
-
-Criterio de selección:
-- Se ordena por **FECCREACION** descendente.
-- Se selecciona el registro más reciente por solicitud.
-
-Este snapshot aporta:
-- Detalle del producto  
-- Etapa y tipo de acción  
-- Divisa  
-- Montos solicitados, aprobados, ofertados y desembolsados  
-
-El resultado se utiliza exclusivamente como **enriquecimiento** del snapshot de estados.
+AnalysisException: [AMBIGUOUS_REFERENCE] Reference `MATSUPERIOR` is ambiguous, could be: [`MATSUPERIOR`, `MATSUPERIOR`].
