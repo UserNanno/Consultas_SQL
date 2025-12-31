@@ -433,3 +433,22 @@ if __name__ == "__main__":
     print("\nAFP\n")
     for k, v in resultado.get("AFP", {}).items():
         print(f"{k}: {v}")
+
+
+
+Cuando lo ejecutaba con py main.py este archivo me arroba esto:
+
+(venv) D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic>py main.py
+[SBS] Intento 1/3: enviando búsqueda (ENTER + click)...
+
+SUNAT
+
+RESULTADOS: {'ruc_consultado': '10788016005', 'Número de RUC': '10788016005 - CANECILLAS CONTRERAS JUAN MARIANO', 'Tipo Contribuyente': 'PERSONA NATURAL SIN NEGOCIO', 'Tipo de Documento': 'DNI 78801600 - CANECILLAS CONTRERAS, JUAN MARIANO', 'Nombre Comercial': '-', 'Fecha de Inscripción': '02/12/2023', 'Fecha de Inicio de Actividades': '02/12/2023', 'Estado del Contribuyente': 'ACTIVO', 'Condición del Contribuyente': 'HABIDO', 'Domicilio Fiscal': '-', 'Sistema Emisión de Comprobante': 'MANUAL', 'Actividad Comercio Exterior': 'SIN ACTIVIDAD', 'Sistema Contabilidad': 'MANUAL', 'Actividad(es) Económica(s)': 'Principal - 9609 - OTRAS ACTIVIDADES DE SERVICIOS PERSONALES N.C.P.', 'Comprobantes de Pago c/aut. de impresión (F. 806 u 816)': 'NINGUNO', 'Sistema de Emisión Electrónica': 'RECIBOS POR HONORARIOS AFILIADO DESDE 29/02/2024', 'Emisor electrónico desde': '29/02/2024', 'Comprobantes Electrónicos': 'RECIBO POR HONORARIO (desde 29/02/2024)', 'Afiliado al PLE desde': '-', 'Padrones': 'NINGUNO', 'fecha_consulta': 'Fecha consulta: 31/12/2025 9:24', 'datos_persona': {'dni': '78801600', 'apellido_paterno': 'CANECILLAS', 'apellido_materno': 'CONTRERAS', 'primer_nombre': 'JUAN', 'segundo_nombre': 'MARIANO'}}
+
+AFP
+
+RESULTADOS: {'dni': '78801600', 'info_al': 'Información al : 31/12/2025 09:24:17', 'afiliado_desde': '09/10/2025', 'afp_actual': 'Profuturo', 'codigo_spp': '665231JCCET8', 'situacion': 'Afiliado', 'devengue_ultimo_aporte': '11/2025', 'detalle_situacion': 'ACTIVO, según los datos que aparecen en la parte superior.', 'detalle_aportes_obligatorios': 'De acuerdo a la información proporcionada por la AFP, durante los últimos seis (6) meses el afiliado registra aportes obligatorios, motivo por el cual puede verificar la fecha de devengue del último aporte a efectos de determinar si éste corresponde al último que su empleador ha efectuado (en caso tuviera la condición de trabajador dependiente) o, el que usted ha pagado (si tiene la condición de trabajador independiente).\n\nEn caso la información no concuerde con el último período pagado, sería conveniente se ponga en contacto con la AFP para determinar la situación de sus aportes. Recuerde que los aportes acreditados resultan necesarios para efectos de la evaluación de la cobertura del seguro previsional ante una contingencia de invalidez o fallecimiento.'}
+
+(venv) D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\WebAutomatic>
+
+quisiera que haga lo mismo pero despues continue con el proceso que actualmente tenemos
