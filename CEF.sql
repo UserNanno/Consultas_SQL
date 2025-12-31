@@ -1,38 +1,8 @@
-D:\Datos de Usuarios\T72496\Desktop\PrismaProject\Dependencias>dir
- El volumen de la unidad D no tiene etiqueta.
- El número de serie del volumen es: E87C-EAAA
-
- Directorio de D:\Datos de Usuarios\T72496\Desktop\PrismaProject\Dependencias
-
-26/12/2025  14:13    <DIR>          .
-26/12/2025  14:32    <DIR>          ..
-26/12/2025  14:13            21,228 altgraph-0.17.5-py2.py3-none-any.whl
-26/12/2025  13:29           163,286 certifi-2025.10.5-py3-none-any.whl
-26/12/2025  14:13            66,469 packaging-25.0-py3-none-any.whl
-26/12/2025  13:57            66,130 pefile-2021.5.24.tar.gz
-26/12/2025  14:14               340 pipDependencias.txt
-26/12/2025  13:37         1,378,685 pyinstaller-6.17.0-py3-none-win_amd64.whl
-26/12/2025  13:41         9,495,040 pywin32-311-cp312-cp312-win_amd64.whl
-26/12/2025  13:50            30,756 pywin32_ctypes-0.2.3-py3-none-any.whl
-26/12/2025  13:12         9,655,249 selenium-4.39.0-py3-none-any.whl
-26/12/2025  14:00         1,201,486 setuptools-80.9.0-py3-none-any.whl
-26/12/2025  13:32            44,614 typing_extensions-4.15.0-py3-none-any.whl
-26/12/2025  13:31           131,182 urllib3-2.6.2-py3-none-any.whl
-26/12/2025  13:33           176,841 websockets-15.0.1-cp312-cp312-win_amd64.whl
-26/12/2025  13:34            82,616 websocket_client-1.9.0-py3-none-any.whl
-26/12/2025  13:58            23,058 wheel-0.46.1-py3-none-any.whl
-              15 archivos     22,536,980 bytes
-               2 dirs  254,468,669,440 bytes libres
-
-D:\Datos de Usuarios\T72496\Desktop\PrismaProject\Dependencias>
-
-
-Este es mi codigo:
-
-
-import time
+import socket, time
 from pathlib import Path
+import logging, traceback, os
 import sys
+import os
 import subprocess
 import tempfile
 
@@ -48,21 +18,51 @@ from selenium.webdriver.common.action_chains import ActionChains
 EDGE_EXE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 DEBUG_PORT = 9223
 
+LOG_PATH = Path(tempfile.gettempdir()) / "prisma_selenium.log"
+logging.basicConfig(
+    filename=str(LOG_PATH),
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
+)
+
 URL_LOGIN = "https://extranet.sbs.gob.pe/app/login.jsp"
 URL_COPILOT = "https://m365.cloud.microsoft/chat/?auth=2"
 
 USUARIO = "T10595"
 CLAVE = "44445555"  # solo números
 
+
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).resolve().parent
 else:
     BASE_DIR = Path(__file__).resolve().parent
 
-IMG_PATH = BASE_DIR / "Tests" / "captura.png"
+TEMP_DIR = Path(tempfile.gettempdir()) / "PrismaProject"
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
+IMG_PATH = TEMP_DIR / "captura.png"
+
+def log_exceptions(fn):
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            logging.error("EXCEPCION:\n%s", traceback.format_exc())
+            raise
+    return wrapper
+
+def wait_port(host, port, timeout=15):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return True
+        except OSError:
+            time.sleep(0.2)
+    return False
 
 def ensure_edge_debug():
-    profile_dir = Path(tempfile.gettempdir()) / "edge_selenium_profile"
+    profile_dir = Path(os.environ["LOCALAPPDATA"]) / "PrismaProject" / "edge_selenium_profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
 
     args = [
         EDGE_EXE,
@@ -72,10 +72,9 @@ def ensure_edge_debug():
         "--start-maximized",
     ]
 
-    # Abre Edge (no bloquea)
     subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    time.sleep(2.5)
+    if not wait_port("127.0.0.1", DEBUG_PORT, timeout=20):
+    	raise RuntimeError("Edge no abrio el puerto de debugging a tiempo")
     
 # COPILOT HELPERS
 def wait_send_enabled(driver, wait):
@@ -182,7 +181,7 @@ def copilot_ask_from_image(driver, img_path: Path):
     result = wait.until(lambda d: last_p_with_text(d))
     return result
 
-
+@log_exceptions
 def main():
     ensure_edge_debug()
     
@@ -204,7 +203,7 @@ def main():
     driver.get(URL_LOGIN)
     form_handle = driver.current_window_handle
 
-    img_el = wait.until(EC.presence_of_element_located((By.ID, "TestImgID")))
+    img_el = wait.until(EC.presence_of_element_located((By.ID, "CaptchaImgID")))
     IMG_PATH.parent.mkdir(parents=True, exist_ok=True)
     img_el.screenshot(str(IMG_PATH))
     print("Captura guardada:", IMG_PATH)
@@ -216,9 +215,9 @@ def main():
     driver.close()
     driver.switch_to.window(form_handle)
 
-    inp_test = wait.until(EC.presence_of_element_located((By.ID, "c_c_test")))
-    inp_test.clear()
-    inp_test.send_keys(copilot_text)
+    inp_captcha = wait.until(EC.presence_of_element_located((By.ID, "c_c_captcha")))
+    inp_captcha.clear()
+    inp_captcha.send_keys(copilot_text)
 
     inp_user = wait.until(EC.presence_of_element_located((By.ID, "c_c_usuario")))
     inp_user.clear()
