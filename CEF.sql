@@ -1,100 +1,31 @@
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import Select
-from pages.base_page import BasePage
+(venv) D:\Datos de Usuarios\T72496\Desktop\PrismaProject>py main.py
+Traceback (most recent call last):
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\main.py", line 11, in <module>
+    from services.excel_service import ExcelService
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\services\excel_service.py", line 1, in <module>
+    from openpyxl import Workbook
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\__init__.py", line 7, in <module>
+    from openpyxl.workbook import Workbook
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\workbook\__init__.py", line 4, in <module>
+    from .workbook import Workbook
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\workbook\workbook.py", line 7, in <module>
+    from openpyxl.worksheet.worksheet import Worksheet
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\worksheet\worksheet.py", line 24, in <module>
+    from openpyxl.cell import Cell, MergedCell
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\cell\__init__.py", line 3, in <module>
+    from .cell import Cell, WriteOnlyCell, MergedCell
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\cell\cell.py", line 26, in <module>
+    from openpyxl.styles import numbers, is_date_format
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\styles\__init__.py", line 4, in <module>
+    from .alignment import Alignment
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\styles\alignment.py", line 5, in <module>
+    from openpyxl.descriptors import Bool, MinMax, Min, Alias, NoneSet
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\descriptors\__init__.py", line 4, in <module>
+    from .sequence import Sequence
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\descriptors\sequence.py", line 4, in <module>
+    from openpyxl.xml.functions import Element
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\openpyxl\xml\functions.py", line 36, in <module>
+    from et_xmlfile import xmlfile
+ModuleNotFoundError: No module named 'et_xmlfile'
 
-class ConsultaPage(BasePage):
-    SELECT_TIPO_DOC = (By.ID, "as_tipo_doc")
-    INPUT_DOC = (By.NAME, "as_doc_iden")
-    BTN_CONSULTAR = (By.ID, "btnConsultar")
-
-    # Tablas
-    TABLAS_CRW = (By.CSS_SELECTOR, "table.Crw")
-
-    # Logout
-    LINK_SALIR = (By.CSS_SELECTOR, "a[href*='/criesgos/logout']")
-
-    def consultar_dni(self, dni: str):
-        # seleccionar DNI (value=11)
-        sel = Select(self.wait.until(EC.presence_of_element_located(self.SELECT_TIPO_DOC)))
-        sel.select_by_value("11")
-
-        # input DNI
-        inp = self.wait.until(EC.element_to_be_clickable(self.INPUT_DOC))
-        inp.click()
-        inp.clear()
-        inp.send_keys(dni)
-
-        # consultar
-        self.wait.until(EC.element_to_be_clickable(self.BTN_CONSULTAR)).click()
-
-        # esperar que carguen tablas resultado
-        self.wait.until(lambda d: len(d.find_elements(*self.TABLAS_CRW)) >= 2)
-
-    def extract_datos_deudor(self) -> dict:
-        """
-        Devuelve dict tipo:
-        {
-          "Documento": "DNI",
-          "Número": "78801600",
-          "Persona": "Natural",
-          "Apellido Paterno": "CANECILLAS",
-          ...
-        }
-        """
-        tablas = self.driver.find_elements(*self.TABLAS_CRW)
-        t1 = tablas[0]
-
-        tds = t1.find_elements(By.CSS_SELECTOR, "tbody td")
-        data = {}
-
-        i = 0
-        while i < len(tds) - 1:
-            left = tds[i].text.strip()
-            right = tds[i + 1].text.strip()
-
-            # saltar celdas vacías/encabezados
-            if left and right and left.lower() not in ("datos del deudor",):
-                # limpiar posibles saltos de línea
-                left = " ".join(left.split())
-                right = " ".join(right.split())
-                # Evitar meter cosas raras como "Distribución..." que no viene en formato label/value
-                if len(left) <= 40:
-                    data[left] = right
-
-            i += 1
-
-        # Si quieres quedarte SOLO con campos “bonitos”, puedes filtrar aquí.
-        return data
-
-    def extract_posicion_consolidada(self) -> list[dict]:
-        """
-        Devuelve lista:
-        [
-          {"Concepto":"Vigente","Saldo MN":"735","Saldo ME":"0","Total":"735"},
-          ...
-        ]
-        """
-        tablas = self.driver.find_elements(*self.TABLAS_CRW)
-        t2 = tablas[1]
-
-        rows = t2.find_elements(By.CSS_SELECTOR, "tbody tr")
-        out = []
-
-        for r in rows:
-            cells = [c.text.strip() for c in r.find_elements(By.CSS_SELECTOR, "td")]
-            cells = [" ".join(x.split()) for x in cells if x is not None]
-
-            # fila header "SALDOS ..." => saltar
-            if len(cells) == 4 and cells[0].upper() != "SALDOS":
-                out.append({
-                    "Concepto": cells[0],
-                    "Saldo MN": cells[1],
-                    "Saldo ME": cells[2],
-                    "Total": cells[3],
-                })
-
-        return out
-
-    def logout(self):
-        self.wait.until(EC.element_to_be_clickable(self.LINK_SALIR)).click()
+(venv) D:\Datos de Usuarios\T72496\Desktop\PrismaProject>
