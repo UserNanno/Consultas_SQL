@@ -1,226 +1,47 @@
-import logging
-import tempfile
-from pathlib import Path
-
-LOG_PATH = Path(tempfile.gettempdir()) / "prisma_selenium.log"
-
-def setup_logging():
-    logging.basicConfig(
-        filename=str(LOG_PATH),
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s"
-    )
-
-
-
-
-
-
-
-
-
-import logging
-import traceback
-from functools import wraps
-
-def log_exceptions(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception:
-            logging.error("EXCEPCION:\n%s", traceback.format_exc())
-            raise
-    return wrapper
-
-
-
-
-
-
-
-
-
-
-from selenium.webdriver.support.ui import WebDriverWait
-
-class BasePage:
-
-    def __init__(self, driver, timeout=30):
-        self.driver = driver
-        self.wait = WebDriverWait(driver, timeout)
-
-
-
-
-
-
-
-
-
-
-
-
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import TimeoutException
-import time
-
-from pages.base_page import BasePage
-from config.settings import URL_COPILOT
-
-class CopilotPage(BasePage):
-
-    def ask_from_image(self, img_path):
-        self.driver.get(URL_COPILOT)
-
-        file_input = self.wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
-        )
-        file_input.send_keys(str(img_path))
-
-        box = self.wait.until(
-            EC.element_to_be_clickable((By.ID, "m365-chat-editor-target-element"))
-        )
-
-        prompt = (
-            "Lee el texto de la imagen y transcribe el extracto de Edipo Rey. "
-            "Responde solo con los 4 caracteres."
-        )
-
-        box.click()
-        box.send_keys(Keys.CONTROL, "a")
-        box.send_keys(prompt)
-
-        try:
-            ActionChains(self.driver).send_keys(Keys.ENTER).perform()
-        except Exception:
-            pass
-
-        def last_text(driver):
-            ps = driver.find_elements(By.CSS_SELECTOR, "p")
-            texts = [p.text.strip() for p in ps if p.is_displayed()]
-            return texts[-1] if texts else None
-
-        return self.wait.until(lambda d: last_text(d))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from pages.base_page import BasePage
-import time
-
-class LoginPage(BasePage):
-
-    def capture_image(self, img_path):
-        img = self.wait.until(EC.presence_of_element_located((By.ID, "TestImgID")))
-        img.screenshot(str(img_path))
-
-    def fill_form(self, usuario, clave, captcha):
-        self.driver.find_element(By.ID, "c_c_test").send_keys(captcha)
-        self.driver.find_element(By.ID, "c_c_usuario").send_keys(usuario)
-
-        for d in clave:
-            key = self.wait.until(
-                EC.element_to_be_clickable(
-                    (By.XPATH, f"//ul[@id='ulKeypad']//li[normalize-space()='{d}']")
-                )
-            )
-            key.click()
-            time.sleep(0.2)
-
-        self.driver.find_element(By.ID, "btnIngresar").click()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-class CopilotService:
-
-    def __init__(self, copilot_page):
-        self.copilot_page = copilot_page
-
-    def resolve_captcha(self, img_path):
-        return self.copilot_page.ask_from_image(img_path)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-from config.settings import *
-from infrastructure.edge_debug import EdgeDebugLauncher
-from infrastructure.selenium_driver import SeleniumDriverFactory
-from pages.login_page import LoginPage
-from pages.copilot_page import CopilotPage
-from services.copilot_service import CopilotService
-from utils.logging_utils import setup_logging
-from utils.decorators import log_exceptions
-
-@log_exceptions
-def main():
-    setup_logging()
-
-    EdgeDebugLauncher().ensure_running()
-    driver = SeleniumDriverFactory.create()
-
-    driver.get(URL_LOGIN)
-
-    login_page = LoginPage(driver)
-    login_page.capture_image(IMG_PATH)
-
-    driver.switch_to.new_window("tab")
-    copilot = CopilotService(CopilotPage(driver))
-    captcha = copilot.resolve_captcha(IMG_PATH)
-
-    driver.switch_to.window(driver.window_handles[0])
-    login_page.fill_form(USUARIO, CLAVE, captcha)
-
-    print("Flujo completo")
-
-if __name__ == "__main__":
+(venv) D:\Datos de Usuarios\T72496\Desktop\PrismaProject>py main.py
+Traceback (most recent call last):
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\main.py", line 32, in <module>
     main()
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\utils\decorators.py", line 9, in wrapper
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\main.py", line 27, in main
+    login_page.fill_form(USUARIO, CLAVE, test)
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\pages\login_page.py", line 13, in fill_form
+    self.driver.find_element(By.ID, "c_c_test").send_keys(test)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\remote\webdriver.py", line 802, in find_element
+    return self.execute(Command.FIND_ELEMENT, {"using": by, "value": value})["value"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\remote\webdriver.py", line 432, in execute
+    self.error_handler.check_response(response)
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 232, in check_response
+    raise exception_class(message, screen, stacktrace)
+selenium.common.exceptions.NoSuchElementException: Message: no such element: Unable to locate element: {"method":"css selector","selector":"[id="c_c_test"]"}
+  (Session info: MicrosoftEdge=143.0.3650.96); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception
+Stacktrace:
+Symbols not available. Dumping unresolved backtrace:
+        0x7ff6280a87d5
+        0x7ff628018e44
+        0x7ff6284031f2
+        0x7ff627e72d9e
+        0x7ff627e72ffb
+        0x7ff627eae917
+        0x7ff627e6a2e5
+        0x7ff627eac8de
+        0x7ff627e6982a
+        0x7ff627e68b33
+        0x7ff627e69653
+        0x7ff627f522e4
+        0x7ff627f6109c
+        0x7ff627f5ac7f
+        0x7ff628139b37
+        0x7ff6280246a6
+        0x7ff62801eab4
+        0x7ff62801ebf9
+        0x7ff628012cbd
+        0x7ffdda13259d
+        0x7ffddad2af78
+
+
+(venv) D:\Datos de Usuarios\T72496\Desktop\PrismaProject>
