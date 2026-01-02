@@ -1,3 +1,65 @@
+from pathlib import Path
+
+from config.settings import *
+from infrastructure.edge_debug import EdgeDebugLauncher
+from infrastructure.selenium_driver import SeleniumDriverFactory
+from pages.login_page import LoginPage
+from pages.copilot_page import CopilotPage
+from pages.riesgos_page import RiesgosPage
+from services.copilot_service import CopilotService
+from services.excel_exporter import ExcelExporter
+from utils.logging_utils import setup_logging
+from utils.decorators import log_exceptions
+
+
+@log_exceptions
+def main():
+    setup_logging()
+
+    launcher = EdgeDebugLauncher()
+    launcher.ensure_running()
+
+    driver = SeleniumDriverFactory.create()
+
+    try:
+        driver.get(URL_LOGIN)
+
+        login_page = LoginPage(driver)
+        login_page.capture_image(IMG_PATH)
+
+        # Resolver captcha por Copilot
+        driver.switch_to.new_window("tab")
+        copilot = CopilotService(CopilotPage(driver))
+        captcha = copilot.resolve_captcha(IMG_PATH)
+
+        # Volver al login y completar
+        driver.switch_to.window(driver.window_handles[0])
+        login_page.fill_form(USUARIO, CLAVE, captcha)
+
+        # === POST-LOGIN ===
+        riesgos = RiesgosPage(driver)
+        riesgos.open_modulo_deuda()
+
+        dni = DNI_CONSULTA
+        riesgos.consultar_por_dni(dni)
+
+        datos_deudor = riesgos.extract_datos_deudor()
+        posicion = riesgos.extract_posicion_consolidada()
+
+        # === Excel con DNI en el nombre ===
+        excel_dir = Path(EXCEL_DIR)
+        excel_dir.mkdir(parents=True, exist_ok=True)
+        excel_path = excel_dir / f"deuda_{dni}.xlsx"
+
+        ExcelExporter().export_deuda(datos_deudor, posicion, excel_path)
+        print(f"Excel generado en: {excel_path}")
+
+        # === Logout (2 pasos) ===
+        riesgos.logout_modulo()
+        riesgos.logout_portal()
+
+        print("Sesión cerrada. Fin del flujo.")
+
     finally:
         # Cierra el webdriver (tabs controladas)
         try:
@@ -12,65 +74,5 @@
             pass
 
 
-
-
-
-
-
-
-import socket
-import time
-import subprocess
-import os
-from pathlib import Path
-
-from config.settings import EDGE_EXE, DEBUG_PORT
-
-
-class EdgeDebugLauncher:
-    def __init__(self):
-        self.process = None
-
-    def _wait_port(self, host, port, timeout=15):
-        start = time.time()
-        while time.time() - start < timeout:
-            try:
-                with socket.create_connection((host, port), timeout=1):
-                    return True
-            except OSError:
-                time.sleep(0.2)
-        return False
-
-    def ensure_running(self):
-        profile_dir = Path(os.environ["LOCALAPPDATA"]) / "PrismaProject" / "edge_profile"
-        profile_dir.mkdir(parents=True, exist_ok=True)
-
-        # Lanza Edge (guardamos el process para poder cerrarlo al final)
-        self.process = subprocess.Popen([
-            EDGE_EXE,
-            f"--remote-debugging-port={DEBUG_PORT}",
-            f"--user-data-dir={profile_dir}",
-            "--start-maximized",
-            "--new-window",
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        if not self._wait_port("127.0.0.1", DEBUG_PORT, timeout=20):
-            raise RuntimeError("Edge no abrió el puerto de debugging")
-
-    def close(self):
-        """
-        Cierra el Edge que abrió este launcher.
-        Importante: esto mata el proceso y sus hijos (/T).
-        """
-        if self.process is None:
-            return
-
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(self.process.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False
-            )
-        finally:
-            self.process = None
+if __name__ == "__main__":
+    main()
