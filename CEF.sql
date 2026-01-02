@@ -1,4 +1,5 @@
-pyinstaller --onefile --noconsole ^
-  --collect-all selenium ^
-  --add-binary "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\common\windows\selenium-manager.exe;selenium\webdriver\common\windows" ^
-  main.py
+Traceback (most recent call last):
+  File "main.py", line 79, in <module>
+  File "utils\decorators.py", line 9, in wrapper
+  File "main.py", line 59, in main
+AttributeError: 'RiesgosPage' object has no attribute 'logout_modulo'
