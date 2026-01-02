@@ -1,40 +1,4 @@
-from pathlib import Path
-import os
-import sys
-import tempfile
-
-EDGE_EXE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-DEBUG_PORT = 9223
-
-URL_LOGIN = "https://extranet.sbs.gob.pe/app/login.jsp"
-URL_COPILOT = "https://m365.cloud.microsoft/chat/?auth=2"
-
-USUARIO = "T10595"
-CLAVE = "44445555"  # solo números
-
-# DNI a consultar en el módulo
-DNI_CONSULTA = "78801600"
-
-# Base dir (por si empaquetas)
-if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys.executable).resolve().parent
-else:
-    BASE_DIR = Path(__file__).resolve().parent
-
-TEMP_DIR = Path(tempfile.gettempdir()) / "PrismaProject"
-TEMP_DIR.mkdir(parents=True, exist_ok=True)
-
-IMG_PATH = TEMP_DIR / "captura.png"
-EXCEL_PATH = TEMP_DIR / "consulta_deuda.xlsx"
-
-
-
-
-
-
-
-
-
+pages/riesgos_page.py
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
@@ -152,62 +116,6 @@ class RiesgosPage(BasePage):
 
 
 
-from openpyxl import Workbook
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font, Alignment
-
-
-class ExcelExporter:
-    def export_deuda(self, datos_deudor: dict, posicion: list, out_path):
-        wb = Workbook()
-
-        # Sheet 1: Datos del Deudor
-        ws1 = wb.active
-        ws1.title = "DatosDeudor"
-        ws1["A1"] = "Campo"
-        ws1["B1"] = "Valor"
-        ws1["A1"].font = Font(bold=True)
-        ws1["B1"].font = Font(bold=True)
-
-        r = 2
-        for k, v in datos_deudor.items():
-            ws1.cell(row=r, column=1, value=k)
-            ws1.cell(row=r, column=2, value=v)
-            r += 1
-
-        # Sheet 2: Posición Consolidada
-        ws2 = wb.create_sheet("PosicionConsolidada")
-        headers = ["Concepto", "Saldo MN", "Saldo ME", "Total (MN+ME)"]
-        for c, h in enumerate(headers, start=1):
-            cell = ws2.cell(row=1, column=c, value=h)
-            cell.font = Font(bold=True)
-
-        for i, row in enumerate(posicion, start=2):
-            for c, val in enumerate(row, start=1):
-                ws2.cell(row=i, column=c, value=val)
-
-        # Ajustes simples de ancho
-        for ws in (ws1, ws2):
-            for col in range(1, ws.max_column + 1):
-                max_len = 0
-                for row in range(1, ws.max_row + 1):
-                    v = ws.cell(row=row, column=col).value
-                    if v is None:
-                        continue
-                    max_len = max(max_len, len(str(v)))
-                ws.column_dimensions[get_column_letter(col)].width = min(max_len + 2, 60)
-
-            ws.freeze_panes = "A2"
-            for row in ws.iter_rows():
-                for cell in row:
-                    cell.alignment = Alignment(vertical="top", wrap_text=True)
-
-        wb.save(str(out_path))
-
-
-
-
-
 
 
 
@@ -261,4 +169,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
