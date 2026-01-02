@@ -119,7 +119,7 @@ class RiesgosPage(BasePage):
 
 
 
-
+main.py
 from config.settings import *
 from infrastructure.edge_debug import EdgeDebugLauncher
 from infrastructure.selenium_driver import SeleniumDriverFactory
@@ -169,3 +169,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
