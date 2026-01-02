@@ -380,3 +380,22 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+(venv) D:\Datos de Usuarios\T72496\Desktop\PrismaProject>py main.py
+Traceback (most recent call last):
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\main.py", line 382, in <module>
+    main()
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\main.py", line 170, in wrapper
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\main.py", line 328, in main
+    persona = sunat_get_persona(driver, wait_ext, ruc)
+                                        ^^^^^^^^
+NameError: name 'wait_ext' is not defined. Did you mean: 'wait_port'?
