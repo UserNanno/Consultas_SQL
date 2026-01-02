@@ -6,7 +6,7 @@ import tempfile
 EDGE_EXE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 DEBUG_PORT = 9223
 
-URL_LOGIN = "http://test.com"
+URL_LOGIN = "https://extranet.sbs.gob.pe/app/login.jsp"
 URL_COPILOT = "https://m365.cloud.microsoft/chat/?auth=2"
 
 USUARIO = "T10595"
@@ -261,3 +261,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
