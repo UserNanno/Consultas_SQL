@@ -1,82 +1,41 @@
-
-from config.settings import *
-
-from infrastructure.edge_debug import EdgeDebugLauncher
-from infrastructure.selenium_driver import SeleniumDriverFactory
-
-from services.sbs_flow import SbsFlow
-from services.sunat_flow import SunatFlow
-from services.xlsm_session_writer import XlsmSessionWriter
-
-from utils.logging_utils import setup_logging
-from utils.decorators import log_exceptions
-
-
-@log_exceptions
-def main():
-    setup_logging()
-
-    launcher = EdgeDebugLauncher()
-    launcher.ensure_running()
-
-    driver = SeleniumDriverFactory.create()
-
-    try:
-        
-        if not MACRO_XLSM_PATH.exists():
-            raise FileNotFoundError(f"No se encontró Macro.xlsm junto al ejecutable: {MACRO_XLSM_PATH}")
-        
-        dni = DNI_CONSULTA
-
-        out_xlsm = OUTPUT_XLSM_PATH.with_name(
-            f"{OUTPUT_XLSM_PATH.stem}_{dni}{OUTPUT_XLSM_PATH.suffix}"
-        )
-
-        # 1) SBS (incluye logout dentro)
-        sbs_data = SbsFlow(driver, USUARIO, CLAVE).run(
-            dni=dni,
-            captcha_img_path=IMG_PATH,
-            detallada_img_path=DETALLADA_IMG_PATH,
-            otros_img_path=OTROS_IMG_PATH,
-        )
-
-        # 2) SUNAT (después de terminar SBS)
-        try:
-            driver.delete_all_cookies()
-        except Exception:
-            pass
-
-        SunatFlow(driver).run(dni=dni, out_img_path=SUNAT_IMG_PATH)
-
-        # 3) Pegar TODO y guardar UNA SOLA VEZ (desde plantilla limpia)
-        with XlsmSessionWriter(MACRO_XLSM_PATH) as writer:
-            # SBS
-            writer.add_image_to_range("SBS", DETALLADA_IMG_PATH, "C64", "Z110")
-            writer.add_image_to_range("SBS", OTROS_IMG_PATH, "C5", "Z50")
-
-            # SUNAT
-            writer.add_image_to_range("SUNAT", SUNAT_IMG_PATH, "C5", "O51")
-
-            writer.save(out_xlsm)
-
-        print(f"XLSM final generado: {out_xlsm}")
-
-    finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
-
-        try:
-            launcher.close()
-        except Exception:
-            pass
-
-
-if __name__ == "__main__":
-    main()
-
-
-
-
-ASI QUEDA EL MAIN?
+Traceback (most recent call last):
+  File "main.py", line 124, in <module>
+  File "utils\decorators.py", line 9, in wrapper
+  File "main.py", line 46, in main
+  File "infrastructure\selenium_driver.py", line 15, in create
+  File "selenium\webdriver\remote\webdriver.py", line 914, in set_window_size
+    self.set_window_rect(width=int(width), height=int(height))
+  File "selenium\webdriver\remote\webdriver.py", line 986, in set_window_rect
+    return self.execute(Command.SET_WINDOW_RECT, {"x": x, "y": y, "width": width, "height": height})["value"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "selenium\webdriver\remote\webdriver.py", line 432, in execute
+    self.error_handler.check_response(response)
+  File "selenium\webdriver\remote\errorhandler.py", line 232, in check_response
+    raise exception_class(message, screen, stacktrace)
+selenium.common.exceptions.WebDriverException: Message: unknown error: failed to change window state to 'normal', current state is 'maximized'
+  (Session info: MicrosoftEdge=143.0.3650.96)
+Stacktrace:
+Symbols not available. Dumping unresolved backtrace:
+	0x7ff70fe687d5
+	0x7ff70fdd8e44
+	0x7ff7101c31f2
+	0x7ff70fbd3dfb
+	0x7ff70fbd1f9e
+	0x7ff70fbd3799
+	0x7ff70fc806c8
+	0x7ff70fc523ea
+	0x7ff70fc2a2e5
+	0x7ff70fc6c8de
+	0x7ff70fc2982a
+	0x7ff70fc28b33
+	0x7ff70fc29653
+	0x7ff70fd122e4
+	0x7ff70fd2109c
+	0x7ff70fd1ac7f
+	0x7ff70fef9b37
+	0x7ff70fde46a6
+	0x7ff70fddeab4
+	0x7ff70fddebf9
+	0x7ff70fdd2cbd
+	0x7ff964d8259d
+	0x7ff96652af78
