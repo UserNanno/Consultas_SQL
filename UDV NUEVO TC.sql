@@ -1,41 +1,36 @@
-Traceback (most recent call last):
-  File "main.py", line 124, in <module>
-  File "utils\decorators.py", line 9, in wrapper
-  File "main.py", line 46, in main
-  File "infrastructure\selenium_driver.py", line 15, in create
-  File "selenium\webdriver\remote\webdriver.py", line 914, in set_window_size
-    self.set_window_rect(width=int(width), height=int(height))
-  File "selenium\webdriver\remote\webdriver.py", line 986, in set_window_rect
-    return self.execute(Command.SET_WINDOW_RECT, {"x": x, "y": y, "width": width, "height": height})["value"]
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "selenium\webdriver\remote\webdriver.py", line 432, in execute
-    self.error_handler.check_response(response)
-  File "selenium\webdriver\remote\errorhandler.py", line 232, in check_response
-    raise exception_class(message, screen, stacktrace)
-selenium.common.exceptions.WebDriverException: Message: unknown error: failed to change window state to 'normal', current state is 'maximized'
-  (Session info: MicrosoftEdge=143.0.3650.96)
-Stacktrace:
-Symbols not available. Dumping unresolved backtrace:
-	0x7ff70fe687d5
-	0x7ff70fdd8e44
-	0x7ff7101c31f2
-	0x7ff70fbd3dfb
-	0x7ff70fbd1f9e
-	0x7ff70fbd3799
-	0x7ff70fc806c8
-	0x7ff70fc523ea
-	0x7ff70fc2a2e5
-	0x7ff70fc6c8de
-	0x7ff70fc2982a
-	0x7ff70fc28b33
-	0x7ff70fc29653
-	0x7ff70fd122e4
-	0x7ff70fd2109c
-	0x7ff70fd1ac7f
-	0x7ff70fef9b37
-	0x7ff70fde46a6
-	0x7ff70fddeab4
-	0x7ff70fddebf9
-	0x7ff70fdd2cbd
-	0x7ff964d8259d
-	0x7ff96652af78
+Todo me ejecuta perfectamente :) 
+
+Ahora quiero añadir otra pagina que es: https://suitebancapersonas.lima.bcp.com.pe:444/Consumos/FiltroClienteConsumo
+
+Dentro existe un selector donde escogeremos DNI
+
+<div class="editor-field col-md-4">
+<select class="form-control" id="CodTipoDocumento" name="CodTipoDocumento"><option value="1">D.N.I.</option>
+<option value="3">C.E.</option>
+</select>
+</div>
+
+Luego digitaremos el DNI en:
+<div class="editor-field col-md-4">
+<input class="form-control" data-val="true" data-val-length="Ingresar 8 caracteres como minimo" data-val-length-max="30" data-val-length-min="8" id="CodDocumento" name="CodDocumento" required="True" type="text" value="" maxlength="8">
+</div>
+
+Luego haremos la consulta con el siguiente boton:
+<div class="col-md-4">
+<button id="btnConsultar" type="submit" class="btn btn-primary">
+<i class="fa fa-search"></i>
+                                            Consultar
+</button>
+</div>
+
+
+
+Posterior tomaremos captura a la pantalla que salga ahi, todo lo que está dentro de <div class="panel-body"> y lo pegaremos en la hoja RBM en C5:Z50
+
+Posterior daremos click en:
+<button class="nav-link" id="CEM-tab" data-toggle="tab" data-target="#CEM" type="button" role="tab" aria-controls="nav-CEM" aria-selected="false" style="font-weight: bold;">Módulo Capacidad Endeudamiento</button>
+
+Que nos cargará la pagina otra sección donde tambien tomaremos captura a todo lo que esté a dentro de <div class="panel-body"> y lo pegaremos en la hoja RBM en C64:Z106
+
+No olvides agregar que se cierre el edge cuando finalice el flujo
+
