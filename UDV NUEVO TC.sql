@@ -1,44 +1,82 @@
-Actulamente este es mi config/settings.py
 
-from pathlib import Path
-import os
-import sys
-import tempfile
+from config.settings import *
 
-EDGE_EXE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-DEBUG_PORT = 9223
+from infrastructure.edge_debug import EdgeDebugLauncher
+from infrastructure.selenium_driver import SeleniumDriverFactory
 
-URL_LOGIN = "https://extranet.sbs.gob.pe/app/login.jsp"
-URL_COPILOT = "https://m365.cloud.microsoft/chat/?auth=2"
-URL_SUNAT = "https://e-consultaruc.sunat.gob.pe/cl-ti-itmrconsruc/FrameCriterioBusquedaWeb.jsp"
+from services.sbs_flow import SbsFlow
+from services.sunat_flow import SunatFlow
+from services.xlsm_session_writer import XlsmSessionWriter
 
-USUARIO = "T10595"
-CLAVE = "44445555"  # solo números
-
-# DNI a consultar en el módulo
-DNI_CONSULTA = "72811352"
-# DNI_CONYUGE_CONSULTA = "" -> FALTA IMPLEMENTAR
-
-# Base dir (por si empaquetas)
-if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys.executable).resolve().parent
-else:
-    BASE_DIR = Path(__file__).resolve().parent
-
-TEMP_DIR = Path(tempfile.gettempdir()) / "PrismaProject"
-TEMP_DIR.mkdir(parents=True, exist_ok=True)
-
-MACRO_XLSM_PATH = Path(r"D:\Datos de Usuarios\T72496\Desktop\PrismaProject\Macro.xlsm")
-OUTPUT_XLSM_PATH = TEMP_DIR / "Macro_out.xlsm"
-
-RESULT_IMG_PATH = TEMP_DIR / "resultado.png"
-DETALLADA_IMG_PATH = TEMP_DIR / "detallada.png"
-OTROS_IMG_PATH = TEMP_DIR / "otros_reportes.png"
+from utils.logging_utils import setup_logging
+from utils.decorators import log_exceptions
 
 
-SUNAT_IMG_PATH = TEMP_DIR / "sunat_panel.png"
+@log_exceptions
+def main():
+    setup_logging()
 
-IMG_PATH = TEMP_DIR / "captura.png"
-EXCEL_PATH = TEMP_DIR / "consulta_deuda.xlsx"
+    launcher = EdgeDebugLauncher()
+    launcher.ensure_running()
+
+    driver = SeleniumDriverFactory.create()
+
+    try:
+        
+        if not MACRO_XLSM_PATH.exists():
+            raise FileNotFoundError(f"No se encontró Macro.xlsm junto al ejecutable: {MACRO_XLSM_PATH}")
+        
+        dni = DNI_CONSULTA
+
+        out_xlsm = OUTPUT_XLSM_PATH.with_name(
+            f"{OUTPUT_XLSM_PATH.stem}_{dni}{OUTPUT_XLSM_PATH.suffix}"
+        )
+
+        # 1) SBS (incluye logout dentro)
+        sbs_data = SbsFlow(driver, USUARIO, CLAVE).run(
+            dni=dni,
+            captcha_img_path=IMG_PATH,
+            detallada_img_path=DETALLADA_IMG_PATH,
+            otros_img_path=OTROS_IMG_PATH,
+        )
+
+        # 2) SUNAT (después de terminar SBS)
+        try:
+            driver.delete_all_cookies()
+        except Exception:
+            pass
+
+        SunatFlow(driver).run(dni=dni, out_img_path=SUNAT_IMG_PATH)
+
+        # 3) Pegar TODO y guardar UNA SOLA VEZ (desde plantilla limpia)
+        with XlsmSessionWriter(MACRO_XLSM_PATH) as writer:
+            # SBS
+            writer.add_image_to_range("SBS", DETALLADA_IMG_PATH, "C64", "Z110")
+            writer.add_image_to_range("SBS", OTROS_IMG_PATH, "C5", "Z50")
+
+            # SUNAT
+            writer.add_image_to_range("SUNAT", SUNAT_IMG_PATH, "C5", "O51")
+
+            writer.save(out_xlsm)
+
+        print(f"XLSM final generado: {out_xlsm}")
+
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+
+        try:
+            launcher.close()
+        except Exception:
+            pass
 
 
+if __name__ == "__main__":
+    main()
+
+
+
+
+ASI QUEDA EL MAIN?
