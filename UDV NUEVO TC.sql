@@ -1,467 +1,378 @@
-Perfecto, todo salio bien. Ahora aca tengo un tema, para ciertas busquedas de ciertos DNI cuando vamos a la sección de otros reportes se muestra una tabla adicional que tiene esta estructura
+Todo salio perfecto.
 
-<table class="Crw">
-        <thead>
-          <tr>
-            <td class="Izq">
-              <span class="F">Otros Reportes</span>
-            </td>
-          </tr>
-        </thead>
-        <tbody>
-          <tr class="Def">
-            <td class="Izq">
-              <ul id="OtrosReportes" class="horizontal">
-                <li>
-                  <a onclick="jsVerCT('3436435861224265094'); return false;" href="#">
-                    <img src="images/mas.gif" alt="Carteras Transferidas"></a>
-                </li>
-                <li>
-                  <a onclick="jsVerCT('7190420682310492127'); return false;" href="#">Carteras Transferidas</a>
-                </li>
-              </ul>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+Aca tengo otro detalle, la pagina que estoy consultando actualmente es solo 1 de 3.
+
+Deberiamos reorganizar nuestro codigo, archivos? 
+
+Quiero ahora que entre a otra pagina que es: https://e-consultaruc.sunat.gob.pe/cl-ti-itmrconsruc/FrameCriterioBusquedaWeb.jsp y dentro dar click al boton btnPorDocumento
+
+<div role="group" class="btn-group">
+						      <button id="btnPorRuc" class="btn btn-default btnPor active" type="button">Por RUC</button>
+						      <button id="btnPorDocumento" class="btn btn-default btnPor" type="button">Por Documento</button>
+						      <button id="btnPorRazonSocial" class="btn btn-default btnPor" type="button">Por Nomb./Raz.Soc.</button>
+						    </div>
+
+Donde se mostrará otras opciones como: 
+
+<div class="col-sm-8 col-sm-offset-2 divConsultaCampo" id="divTipoDoc1">
+	                            	<select name="tipdoc" id="cmbTipoDoc" class="form-control cmbTipo">				
+										 <option value="1" selected="">Documento Nacional de Identidad</option>
+										 <option value="4">Carnet de Extranjeria</option>					
+										 <option value="7">Pasaporte</option>
+										 <option value="A">Ced. Diplomática de Identidad</option>
+									</select> 
+	                            </div>
 
 
-Al darle click ahi en el a onclick se desglosa otra seccion pero he notado que la pagina se pasa a otra porque antes de hacer click la ruta es: https://extranet.sbs.gob.pe/criesgos/criesgos/buscarotrosreportes?r=6644719673685279000
-pero despues de darle click la ruta es: https://extranet.sbs.gob.pe/criesgos/criesgos/buscarinfocarterastransferidas?r=7190420682310492127
+Donde tenemos que escoger Documento Nacional de Identiddad (DNI). Posterior digitar el DNI en 
+<div class="col-sm-8 col-sm-offset-2 divConsultaCampo" id="divTipoDoc2">
+	                             	<input type="text" class="form-control" id="txtNumeroDocumento" name="search2" placeholder="Ingrese Número documento" tabindex="1"><!-- maxlength="16" -->
+	                            </div>
 
-Dentro de esta nueva ruta se muestra la mimsa primera tabla pero la segunda tabla adicional tiene la siguiente estructura
+Para luego dar click en el boton Buscar:
+<div class="col-sm-8 col-sm-offset-2 divConsultaCampo" id="divTipoDoc2">
+	                             	<input type="text" class="form-control" id="txtNumeroDocumento" name="search2" placeholder="Ingrese Número documento" tabindex="1"><!-- maxlength="16" -->
+	                            </div>
 
-<table id="expand" class="Crw">
-		<thead>
-			<tr>
-				<td class="Izq" colspan="10">
-					<span class="F">Información de Carteras Transferidas</span>
-				</td>
-			</tr>
-		</thead>
 
-		<tbody>
-			<tr class="Str">
-				<td width="4%">&nbsp;</td>
-				<td width="5%" align="center">
-					<b class="Dz">N°</b>
-				</td>
-				<td width="8%" align="center">
-					<b class="Dz">Fecha Cartera</b>
-				</td>
-				<td class="Izq">
-					<b class="Dz">Entidad Vendedora</b>
-				</td>
-				<td width="12%" class="Izq">
-					<b class="Dz">Clasificación</b>
-				</td>
-				<td width="16%" align="center">
-					<b class="Dz">Tipo de Crédito</b>
-				</td>
-				<td width="10%" align="center">
-					<b class="Dz">Capital</b>
-				</td>
-				<td width="10%" align="center">
-					<b class="Dz">Interés y Comisiones</b>
-				</td>
-				<td width="10%" align="center">
-					<b class="Dz">Saldo</b>
-				</td>
-				<td width="8%" align="center">
-					<b class="Dz">Días de Atraso</b>
-				</td>
-			</tr>
-			
-				<tr class="master Def">
-					<td align="center">
-						<div class="arrow" title="Mostrar Rectificaciones"></div>
-					</td>
-					<td align="center">
-						<span class="Dz">1</span>
-					</td>
-					<td align="center">
-						<span class="Dz">03/2023</span>
-					</td>
-					<td class="Izq">
-						<span class="Dz">BBVA</span>
-						
-							<span class="Dz" style="background-color: red; padding: 2px; color: white;">RAC</span>
+Una vez dado buscar, se cambiará la URL de la pagina a: https://e-consultaruc.sunat.gob.pe/cl-ti-itmrconsruc/jcrS00Alias
+
+Aca podremos visularizar esto:
+
+<div class="list-group">
+					  
+					  
 						
 						
-					</td>
-					<td class="Izq">
-						<span class="Dz">Deficiente</span>
-					</td>
-					<td class="Izq">
-						<span class="Dz">Créditos de Consumo revolventes</span>
-					</td>
-					<td class="Der">
-						<span class="Dz">0</span>
-					</td>
-					<td class="Der">
-						<span class="Dz">0</span>
-					</td>
-					<td class="Der">
-						<span class="Dz">0</span>
-					</td>
-					<td class="Der">
-						<span class="Dz">0</span>
-					</td>
-				</tr>
-				<tr class="Vde" style="display: none;">
-					<td>&nbsp;</td>
-					<td colspan="9">
-						<table class="Verde">
-							<thead>
-								<tr>
-									<td class="Izq" colspan="9">
-										<b class="Dz">Rectificaciones RIC</b>
-									</td>
-								</tr>
-							</thead>
-
-							<tbody>
-								<tr class="Str">
-									<td width="5%" align="center">
-										<b class="Dz">N°</b>
-									</td>
-									<td width="12%" align="center">
-										<b class="Dz">Concepto</b>
-									</td>
-									<td width="16%" align="center">
-										<b class="Dz">Tipo de crédito</b>
-									</td>
-									<td align="center">
-										<b class="Dz">Cuenta</b>
-									</td>
-									<td width="14%" align="center">
-										<b class="Dz">Cond. días</b>
-									</td>
-									<td width="14%" align="center">
-										<b class="Dz">Clasif.</b>
-									</td>
-									<td width="14%" align="center">
-										<b class="Dz">Saldo</b>
-									</td>
-									<td width="12%" align="center">
-										<b class="Dz">F. Registro</b>
-									</td>
-								</tr>
-								
-								
-									<tr class="Def">
-										<td class="Izq" colspan="8">
-											<span class="Dz">No se han encontrado rectificaciones.</span>
-										</td>
-									</tr>
-								
-							</tbody>
-						</table>
-
-						<table class="Verde" style="margin-top: 5px;">
-							<thead>
-								<tr>
-									<td class="Izq" colspan="9">
-										<b class="Dz">Rectificaciones RAC</b>
-									</td>
-								</tr>
-							</thead>
-
-							<tbody>
-								<tr class="Str">
-									<td width="5%" align="center">
-										<b class="Dz">N°</b>
-									</td>
-									<td align="center">
-										<b class="Dz">Entidad Reportante</b>
-									</td>
-									<td width="15%" align="center">
-										<b class="Dz">Concepto</b>
-									</td>
-									<td width="15%" align="center">
-										<b class="Dz">Cond. días</b>
-									</td>
-									<td width="15%" align="center">
-										<b class="Dz">Saldo</b>
-									</td>
-									<td width="17%" align="center">
-										<b class="Dz">F. Registro</b>
-									</td>
-								</tr>
-								
-									<tr class="Def">
-										<td align="center" rowspan="2">
-											<span class="Dz">1</span>
-										</td>
-										<td class="Izq" rowspan="2">
-											<span class="Dz">BBVA</span>
-										</td>
-										<td class="Izq">
-											<span class="Dz">Dice</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">56</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">35,565.92</span>
-										</td>
-										<td align="center" rowspan="2">
-											<span class="Dz">10/05/2024 02:34 PM</span>
-										</td>
-									</tr>
-									<tr class="Def">
-										<td class="Izq">
-											<span class="Dz">Debe decir</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">0</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">0.00</span>
-										</td>
-									</tr>
-								
-									<tr class="Def">
-										<td align="center" rowspan="2">
-											<span class="Dz">2</span>
-										</td>
-										<td class="Izq" rowspan="2">
-											<span class="Dz">BBVA</span>
-										</td>
-										<td class="Izq">
-											<span class="Dz">Dice</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">37</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">71,637.54</span>
-										</td>
-										<td align="center" rowspan="2">
-											<span class="Dz">10/05/2024 02:34 PM</span>
-										</td>
-									</tr>
-									<tr class="Def">
-										<td class="Izq">
-											<span class="Dz">Debe decir</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">0</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">0.00</span>
-										</td>
-									</tr>
-								
-								
-							</tbody>
-						</table>
-					</td>
-				</tr>
-			
-				<tr class="master Def">
-					<td align="center">
-						<div class="arrow" title="Mostrar Rectificaciones"></div>
-					</td>
-					<td align="center">
-						<span class="Dz">2</span>
-					</td>
-					<td align="center">
-						<span class="Dz">03/2023</span>
-					</td>
-					<td class="Izq">
-						<span class="Dz">BBVA</span>
 						
-							<span class="Dz" style="background-color: red; padding: 2px; color: white;">RAC</span>
+									<a href="#" class="list-group-item clearfix aRucs" data-ruc="10788016005">
+									    <h4 class="list-group-item-heading">RUC: 10788016005</h4>
+									    <h4 class="list-group-item-heading">CANECILLAS CONTRERAS JUAN MARIANO</h4>
+									    <p class="list-group-item-text">Ubicación: LIMA</p>
+									    
+									    
+									    <p class="list-group-item-text">Estado: <strong><span class="text-success">ACTIVO</span></strong></p>
+									    
+									    <span class="glyphicon glyphicon-chevron-right pull-right" aria-hidden="true"></span>
+									    
+									  </a>
 						
 						
-					</td>
-					<td class="Izq">
-						<span class="Dz">Deficiente</span>
-					</td>
-					<td class="Izq">
-						<span class="Dz">Créditos de Consumo no revolventes</span>
-					</td>
-					<td class="Der">
-						<span class="Dz">0</span>
-					</td>
-					<td class="Der">
-						<span class="Dz">0</span>
-					</td>
-					<td class="Der">
-						<span class="Dz">0</span>
-					</td>
-					<td class="Der">
-						<span class="Dz">0</span>
-					</td>
-				</tr>
-				<tr class="Vde" style="display: none;">
-					<td>&nbsp;</td>
-					<td colspan="9">
-						<table class="Verde">
-							<thead>
-								<tr>
-									<td class="Izq" colspan="9">
-										<b class="Dz">Rectificaciones RIC</b>
-									</td>
-								</tr>
-							</thead>
-
-							<tbody>
-								<tr class="Str">
-									<td width="5%" align="center">
-										<b class="Dz">N°</b>
-									</td>
-									<td width="12%" align="center">
-										<b class="Dz">Concepto</b>
-									</td>
-									<td width="16%" align="center">
-										<b class="Dz">Tipo de crédito</b>
-									</td>
-									<td align="center">
-										<b class="Dz">Cuenta</b>
-									</td>
-									<td width="14%" align="center">
-										<b class="Dz">Cond. días</b>
-									</td>
-									<td width="14%" align="center">
-										<b class="Dz">Clasif.</b>
-									</td>
-									<td width="14%" align="center">
-										<b class="Dz">Saldo</b>
-									</td>
-									<td width="12%" align="center">
-										<b class="Dz">F. Registro</b>
-									</td>
-								</tr>
-								
-								
-									<tr class="Def">
-										<td class="Izq" colspan="8">
-											<span class="Dz">No se han encontrado rectificaciones.</span>
-										</td>
-									</tr>
-								
-							</tbody>
-						</table>
-
-						<table class="Verde" style="margin-top: 5px;">
-							<thead>
-								<tr>
-									<td class="Izq" colspan="9">
-										<b class="Dz">Rectificaciones RAC</b>
-									</td>
-								</tr>
-							</thead>
-
-							<tbody>
-								<tr class="Str">
-									<td width="5%" align="center">
-										<b class="Dz">N°</b>
-									</td>
-									<td align="center">
-										<b class="Dz">Entidad Reportante</b>
-									</td>
-									<td width="15%" align="center">
-										<b class="Dz">Concepto</b>
-									</td>
-									<td width="15%" align="center">
-										<b class="Dz">Cond. días</b>
-									</td>
-									<td width="15%" align="center">
-										<b class="Dz">Saldo</b>
-									</td>
-									<td width="17%" align="center">
-										<b class="Dz">F. Registro</b>
-									</td>
-								</tr>
-								
-									<tr class="Def">
-										<td align="center" rowspan="2">
-											<span class="Dz">1</span>
-										</td>
-										<td class="Izq" rowspan="2">
-											<span class="Dz">BBVA</span>
-										</td>
-										<td class="Izq">
-											<span class="Dz">Dice</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">56</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">35,565.92</span>
-										</td>
-										<td align="center" rowspan="2">
-											<span class="Dz">10/05/2024 02:34 PM</span>
-										</td>
-									</tr>
-									<tr class="Def">
-										<td class="Izq">
-											<span class="Dz">Debe decir</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">0</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">0.00</span>
-										</td>
-									</tr>
-								
-									<tr class="Def">
-										<td align="center" rowspan="2">
-											<span class="Dz">2</span>
-										</td>
-										<td class="Izq" rowspan="2">
-											<span class="Dz">BBVA</span>
-										</td>
-										<td class="Izq">
-											<span class="Dz">Dice</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">37</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">71,637.54</span>
-										</td>
-										<td align="center" rowspan="2">
-											<span class="Dz">10/05/2024 02:34 PM</span>
-										</td>
-									</tr>
-									<tr class="Def">
-										<td class="Izq">
-											<span class="Dz">Debe decir</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">0</span>
-										</td>
-										<td class="Der">
-											<span class="Dz">0.00</span>
-										</td>
-									</tr>
-								
-								
-							</tbody>
-						</table>
-					</td>
-				</tr>
-			
-		</tbody>
-
-		<tfoot>
-			<tr>
-				<td colspan="10" class="Izq">
-					<span class="Dz">Nota: Para mostrar las rectificaciones RIC y RAC (si los hubiese), haga clic en la imagen</span> <img src="images/arrow-down.png" alt="Mostrar Rectificaciones" title="Mostrar Rectificaciones" style="vertical-align: middle">
-				</td>
-			</tr>
-		</tfoot>
-	</table>
+					
+					  
+					</div>
 
 
+Donde le daremos click para que se muestre el contenido que queremos: 
 
-Donde al dar click en <div class="arrow" title="Mostrar Rectificaciones"></div> aca si se desglosa (no cambia de URL ni refreshea). Lo mismo con este otro <div class="arrow" title="Mostrar Rectificaciones"></div> (en html son lo mismo creo) pero la cosa que hay dos de ellos en diferentes filas.
+Que es este:
 
-Entonces el flujo deberia ser, si no encuentra esta segunda tabla, deberá tomar captura solo despues de dar click en "Otros repotes" en el menú. En caso si exista esta tabla adicional deberá entrar, desglosar las dos opciones que figuran y tomar la captura de toda la pantalla del navegador o incluso mejor solo tomar captura a esta parte
+<div class="panel panel-primary">
+				  <div class="panel-heading">Resultado de la Búsqueda</div>
+				  <div class="list-group">
+				  	<!-- Inicio filas de datos -->
+				  	 
+				    <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Número de RUC:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<h4 class="list-group-item-heading">10788016005 - CANECILLAS CONTRERAS JUAN MARIANO</h4>
+	                         </div>
+				    	</div>  
+			        </div>
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Tipo Contribuyente:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<p class="list-group-item-text">PERSONA NATURAL SIN NEGOCIO</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			          <div class="list-group-item">
+					    	<div class="row">
+					    		<div class="col-sm-5">
+		                         	<h4 class="list-group-item-heading">Tipo de Documento:</h4>
+		                         </div>
+		                         <div class="col-sm-7">
+		                         	<p class="list-group-item-text">DNI  78801600 
+						            
+						            	 - CANECILLAS CONTRERAS, JUAN MARIANO
+						            	
+						            </p>
+		                         </div>
+					    	</div>  
+				        </div>
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Nombre Comercial:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<p class="list-group-item-text">-
+					              
+					            </p>
+	                         </div>
+				    	</div>  
+			        </div>
+			         
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-3">
+	                         	<h4 class="list-group-item-heading">Fecha de Inscripción:</h4>
+	                         </div>
+	                         <div class="col-sm-3">
+	                         	<p class="list-group-item-text">02/12/2023</p>
+	                         </div>
+	                         
+	                         <div class="col-sm-3">
+	                         	<h4 class="list-group-item-heading">Fecha de Inicio de Actividades:</h4>
+	                         </div>
+	                         <div class="col-sm-3">
+	                         	<p class="list-group-item-text">02/12/2023</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			         
+			        <div class="list-group-item list-group-item-success">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Estado del Contribuyente:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	
+	                         	<p class="list-group-item-text">ACTIVO
+	                         	
+					                 
+					                
+	                         	</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        
+			        
+			        <div class="list-group-item list-group-item-success">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Condición del Contribuyente:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	
+	                         	<p class="list-group-item-text">
+		                         	
+						              	HABIDO
+						              
 
-<div id="Contenido"> que tiene todo el contenido de las tablas. Se podrá hacer esto? 
+								</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Domicilio Fiscal:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<p class="list-group-item-text">-</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			         
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-3">
+	                         	<h4 class="list-group-item-heading">Sistema Emisión de Comprobante:</h4>
+	                         </div>
+	                         <div class="col-sm-3">
+	                         	<p class="list-group-item-text">MANUAL</p>
+	                         </div>
+	                         
+	                         <div class="col-sm-3">
+	                         	<h4 class="list-group-item-heading">Actividad Comercio Exterior:</h4>
+	                         </div>
+	                         <div class="col-sm-3">
+	                         	<p class="list-group-item-text">SIN ACTIVIDAD</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Sistema Contabilidad:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<p class="list-group-item-text">MANUAL</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Actividad(es) Económica(s):</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<table class="table tblResultado">
+	                                <tbody>
+	                    
+		                <tr><td>Principal    - 9609 - OTRAS ACTIVIDADES DE SERVICIOS PERSONALES N.C.P.</td></tr>
+		                <!--SC003-2015 Inicio-->
+		                
+		                <!--SC003-2015 Fin-->
+		                
+		                <!--SC003-2015 Fin-->
+		                
+		                
+									</tbody>
+	                            </table>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Comprobantes de Pago c/aut. de impresión (F. 806 u 816):</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<table class="table tblResultado">
+	                                <tbody>
+	                               	 	
+						                
+						                	<tr><td>NINGUNO</td></tr>
+						                
+									</tbody>
+	                            </table>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Sistema de Emisión Electrónica:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	
+				                
+						                <table class="table tblResultado">
+	                                		<tbody>
+						                
+						                
+						                
+						                		<tr><td>RECIBOS POR HONORARIOS     AFILIADO DESDE 29/02/2024</td></tr>
+						                
+								             </tbody>
+			                            </table>
+				                
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Emisor electrónico desde:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<p class="list-group-item-text">29/02/2024</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Comprobantes Electrónicos:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<p class="list-group-item-text">RECIBO POR HONORARIO (desde 29/02/2024)</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Afiliado al PLE desde:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<p class="list-group-item-text">-</p>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Padrones:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	 <table class="table tblResultado">
+                               		<tbody>
+						                
+				                       		
+						                
+						                
+						                
+						
+										<!-- JRR - 20/09/2010 - Se añade cambio de Igor -->
+										
+						                
+						                
+						                
+											<tr><td>NINGUNO</td></tr>
+						                
+					                </tbody>
+	                            </table>
+	                         </div>
+				    	</div>  
+			        </div>
+			        
+			        
+			        <!-- <div class="list-group-item">
+				    	<div class="row">
+				    		<div class="col-sm-5">
+	                         	<h4 class="list-group-item-heading">Razón Social:</h4>
+	                         </div>
+	                         <div class="col-sm-7">
+	                         	<p class="list-group-item-text">eeee</p>
+	                         </div>
+				    	</div>  
+			        </div> -->
+			        
+			        
+			        
+				  </div><!-- fin list-group -->
+				  
+				  
+				  <div class="panel-footer text-center">
+				  	<small>Fecha consulta: 05/01/2026 15:14</small>
+				  </div><!-- fin footer del panel -->
+				</div>
+
+
+
+
+Entonces tomaremos captura a este elemento y todo dentro
+
+<div class="panel panel-primary">
+
+Y luego lo pegaremos en el excel pero en la hoja que se llama SUNAT en el rango C5:O51
+
 
