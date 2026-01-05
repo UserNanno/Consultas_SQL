@@ -1,18 +1,44 @@
-Pefecto. Funciona excelente.
+Actulamente este es mi config/settings.py
 
-Ahora mi necesidad es empaquetarlo en un .exe
+from pathlib import Path
+import os
+import sys
+import tempfile
 
-para lo cual he usado
+EDGE_EXE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+DEBUG_PORT = 9223
 
-pyinstaller --onefile --noconsole ^
-  --collect-all selenium ^
-  --add-binary "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\common\windows\selenium-manager.exe;selenium\webdriver\common\windows" ^
-  main.py
+URL_LOGIN = "https://extranet.sbs.gob.pe/app/login.jsp"
+URL_COPILOT = "https://m365.cloud.microsoft/chat/?auth=2"
+URL_SUNAT = "https://e-consultaruc.sunat.gob.pe/cl-ti-itmrconsruc/FrameCriterioBusquedaWeb.jsp"
 
-y si lo hace perfecto. Ejecuta bien el .exe
+USUARIO = "T10595"
+CLAVE = "44445555"  # solo números
 
-El unico problema es que depende de que macro.xlsm se encuentre en D:\Datos de Usuarios\T72496\Desktop\PrismaProject
+# DNI a consultar en el módulo
+DNI_CONSULTA = "72811352"
+# DNI_CONYUGE_CONSULTA = "" -> FALTA IMPLEMENTAR
 
-Pero este .exe será enviado a diferentes personas con usuarios distintos, por ende, rutas distintas. No se podrá usar el .xlsm como ruta relativa? Que busque el .xlsm en la misma ruta que se ejeucta el .exe? También actualmente se está guardando las imagenes y el excel que se pega las imagenes (macro editada) en: C:\Users\T72496\AppData\Local\Temp\PrismaProject
+# Base dir (por si empaquetas)
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
 
-No habría forma de moverlo a otro lado o que el resultado se coloque dentro de una carpeta results al mismo nivel del .exe?
+TEMP_DIR = Path(tempfile.gettempdir()) / "PrismaProject"
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+MACRO_XLSM_PATH = Path(r"D:\Datos de Usuarios\T72496\Desktop\PrismaProject\Macro.xlsm")
+OUTPUT_XLSM_PATH = TEMP_DIR / "Macro_out.xlsm"
+
+RESULT_IMG_PATH = TEMP_DIR / "resultado.png"
+DETALLADA_IMG_PATH = TEMP_DIR / "detallada.png"
+OTROS_IMG_PATH = TEMP_DIR / "otros_reportes.png"
+
+
+SUNAT_IMG_PATH = TEMP_DIR / "sunat_panel.png"
+
+IMG_PATH = TEMP_DIR / "captura.png"
+EXCEL_PATH = TEMP_DIR / "consulta_deuda.xlsx"
+
+
