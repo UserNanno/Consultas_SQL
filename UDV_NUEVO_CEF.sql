@@ -61,7 +61,7 @@ def main():
        captcha_img_path = results_dir / "captura.png"
        detallada_img_path = results_dir / "detallada.png"
        otros_img_path = results_dir / "otros_reportes.png"
-        # SBS CONYUGE
+       # SBS CONYUGE
        captcha_img_cony_path = results_dir / "sbs_captura_conyuge.png"
        detallada_img_cony_path = results_dir / "sbs_detallada_conyuge.png"
        otros_img_cony_path = results_dir / "sbs_otros_reportes_conyuge.png"
@@ -70,7 +70,7 @@ def main():
        # RBM titular
        rbm_consumos_img_path = results_dir / "rbm_consumos.png"
        rbm_cem_img_path = results_dir / "rbm_cem.png"
-       # ====== Evidencias CONYUGE (solo RBM) ======
+       # RBM conyuge
        rbm_consumos_cony_path = results_dir / "rbm_consumos_conyuge.png"
        rbm_cem_cony_path = results_dir / "rbm_cem_conyuge.png"
        logging.info("APP_DIR=%s", app_dir)
@@ -90,15 +90,27 @@ def main():
        )
        logging.info("== FLUJO SBS (TITULAR) FIN ==")
        # ==========================================================
-       # 1.1) SBS CONYUGE (incluye logout dentro del flow)
+       # 1.1) SBS CONYUGE (aislado en pestaña nueva)
        # ==========================================================
        logging.info("== FLUJO SBS (CONYUGE) INICIO ==")
-       _ = SbsFlow(driver, USUARIO, CLAVE).run(
-           dni=dni_conyuge,
-           captcha_img_path=captcha_img_cony_path,
-           detallada_img_path=detallada_img_cony_path,
-           otros_img_path=otros_img_cony_path,
-       )
+       original_handle_sbs = driver.current_window_handle
+       try:
+           driver.switch_to.new_window("tab")
+           _ = SbsFlow(driver, USUARIO, CLAVE).run(
+               dni=dni_conyuge,
+               captcha_img_path=captcha_img_cony_path,
+               detallada_img_path=detallada_img_cony_path,
+               otros_img_path=otros_img_cony_path,
+           )
+       finally:
+           try:
+               driver.close()
+           except Exception:
+               pass
+           try:
+               driver.switch_to.window(original_handle_sbs)
+           except Exception:
+               pass
        logging.info("== FLUJO SBS (CONYUGE) FIN ==")
        # ==========================================================
        # 2) SUNAT TITULAR (NO cónyuge)
@@ -128,7 +140,7 @@ def main():
        # 4) RBM CONYUGE en pestaña nueva (NO SUNAT)
        # ==========================================================
        logging.info("== FLUJO RBM (CONYUGE) INICIO ==")
-       original_handle = driver.current_window_handle
+       original_handle_rbm = driver.current_window_handle
        rbm_conyuge = {}
        try:
            driver.switch_to.new_window("tab")
@@ -138,13 +150,12 @@ def main():
                cem_img_path=rbm_cem_cony_path,
            )
        finally:
-           # cerrar tab del cónyuge y volver al titular
            try:
                driver.close()
            except Exception:
                pass
            try:
-               driver.switch_to.window(original_handle)
+               driver.switch_to.window(original_handle_rbm)
            except Exception:
                pass
        rbm_inicio_cony = rbm_conyuge.get("inicio", {}) if isinstance(rbm_conyuge, dict) else {}
@@ -158,7 +169,6 @@ def main():
        logging.info("== ESCRITURA XLSM INICIO ==")
        with XlsmSessionWriter(macro_path) as writer:
            # ------------------ RBM -> Hoja Inicio (titular) ------------------
-           # (Esto lo tenías funcionando)
            try:
                writer.write_cell("Inicio", "C11", rbm_inicio_tit.get("segmento"))
                writer.write_cell("Inicio", "C12", rbm_inicio_tit.get("segmento_riesgo"))
@@ -166,8 +176,7 @@ def main():
                writer.write_cell("Inicio", "C15", rbm_inicio_tit.get("score_rcc"))
            except Exception as e:
                logging.exception("No se pudieron escribir campos RBM titular en hoja Inicio: %r", e)
-           # ------------------ CEM titular -> Hoja Inicio (si lo sigues usando) ------------------
-           # Si ya lo estabas escribiendo en Inicio, lo dejamos igual.
+           # ------------------ CEM titular -> Hoja Inicio ------------------
            cem_row_map = [
                ("hipotecario", 26),
                ("cef", 27),
@@ -186,8 +195,7 @@ def main():
                    writer.write_cell("Inicio", f"E{row}", item.get("saldo_sbs", 0))
            except Exception as e:
                logging.exception("No se pudo escribir tabla CEM titular en hoja Inicio: %r", e)
-           # ------------------ RBM cónyuge -> Hoja RBM (celdas que pediste) ------------------
-           # Segmento Banca, Segmento Riesgos, Score RCC
+           # ------------------ RBM cónyuge -> Hoja RBM (celdas pedidas) ------------------
            try:
                writer.write_cell("RBM", "D11", rbm_inicio_cony.get("segmento"))
                writer.write_cell("RBM", "D12", rbm_inicio_cony.get("segmento_riesgo"))
@@ -195,7 +203,6 @@ def main():
            except Exception as e:
                logging.exception("No se pudieron escribir campos RBM cónyuge en hoja RBM: %r", e)
            # ------------------ CEM cónyuge -> Hoja RBM desde G26/H26/I26 ------------------
-           # G = BCP Cuota, H = SBS Cuota, I = SBS Saldo
            try:
                for key, row in cem_row_map:
                    item = rbm_cem_cony.get(key, {}) or {}
@@ -204,19 +211,19 @@ def main():
                    writer.write_cell("RBM", f"I{row}", item.get("saldo_sbs", 0))
            except Exception as e:
                logging.exception("No se pudo escribir tabla CEM cónyuge en hoja RBM: %r", e)
-           # ------------------ Imágenes (como ya lo tenías) ------------------
+           # ------------------ Imágenes ------------------
            # SBS (titular)
            writer.add_image_to_range("SBS", detallada_img_path, "C64", "Z110")
            writer.add_image_to_range("SBS", otros_img_path, "C5", "Z50")
-           # SBS (CONYUGE)
+           # SBS (cónyuge) - a la derecha para no pisar
            writer.add_image_to_range("SBS", detallada_img_cony_path, "AI64", "AY110")
            writer.add_image_to_range("SBS", otros_img_cony_path, "AI5", "AY50")
            # SUNAT (titular)
            writer.add_image_to_range("SUNAT", sunat_img_path, "C5", "O51")
-           # RBM (titular) - tus posiciones actuales
+           # RBM (titular)
            writer.add_image_to_range("RBM", rbm_consumos_img_path, "C5", "Z50")
            writer.add_image_to_range("RBM", rbm_cem_img_path, "C64", "Z106")
-           # RBM (cónyuge) - misma hoja RBM, a la derecha para no pisar
+           # RBM (cónyuge) - a la derecha para no pisar
            writer.add_image_to_range("RBM", rbm_consumos_cony_path, "AI5", "AY50")
            writer.add_image_to_range("RBM", rbm_cem_cony_path, "AI64", "AY106")
            writer.save(out_xlsm)
