@@ -249,7 +249,8 @@ Esta estructura que tiene la tabla está replicada en el excel.
 
 Y asi consecutivamente con los otros campos y valores. Donde veas "-" en el excel debes colocar 0.
 
-Se entiende o prefieres que precise el campo a extraer y la celda exacta? 
+Se entiende o prefieres que precise el campo a extraer y la celda exacta? Considera que en la pagina existen estas columnas en la tabla Cuota, Cuota, Saldo, Salto Act, Cuota Act. Solo debemos traernos las 3 primeras columnas. Las demás no
+
 
 
 
