@@ -1,3 +1,4 @@
+pages/sunat/sunat_page.py
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
@@ -12,18 +13,18 @@ class SunatPage(BasePage):
     TXT_NUM_DOC = (By.ID, "txtNumeroDocumento")
     BTN_BUSCAR = (By.ID, "btnAceptar")
 
-    # ✅ Lista de contribuyentes
+
     RESULT_ITEM = (By.CSS_SELECTOR, "a.aRucs.list-group-item, a.aRucs")
 
     PANEL_RESULTADO = (By.CSS_SELECTOR, "div.panel.panel-primary")
 
-    # ✅ Caso SIN RUC
+
     NO_RUC_STRONG = (
         By.XPATH,
         "//strong[contains(translate(., 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NO REGISTRA')]"
     )
 
-    # ✅ Form que la web usa para continuar al detalle del RUC
+
     FORM_SELEC = (By.NAME, "selecXNroRuc")
 
     def open(self):
@@ -107,3 +108,32 @@ class SunatPage(BasePage):
         body = self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", body)
         body.screenshot(str(out_path))
+
+
+
+
+
+
+
+services/sunat_flow.py
+from pathlib import Path
+from pages.sunat.sunat_page import SunatPage
+
+class SunatFlow:
+    def __init__(self, driver):
+        self.page = SunatPage(driver)
+
+    def run(self, dni: str, out_img_path: Path) -> dict:
+        """
+        Retorna dict:
+          {"status": "OK"|"SIN_RUC", "dni": "..."}
+        """
+        self.page.open()
+        result = self.page.buscar_por_dni(dni)
+
+        if result["status"] == "SIN_RUC":
+            self.page.screenshot_body(out_img_path)
+        else:
+            self.page.screenshot_panel_resultado(out_img_path)
+
+        return result
