@@ -1,274 +1,75 @@
-from __future__ import annotations
-from pathlib import Path
-import os
-import sys
-import tempfile
-import logging
-from typing import Optional, Tuple
+2026-01-08 10:10:20,161 INFO === LOG INICIALIZADO ===
+2026-01-08 10:10:20,163 INFO LOG_PATH=D:\Datos de Usuarios\T72496\Desktop\PrismaProject\prisma_selenium.log
+2026-01-08 10:10:20,164 INFO === INICIO EJECUCION ===
+2026-01-08 10:10:20,164 INFO DNI_TITULAR=78801600 | DNI_CONYUGE=
+2026-01-08 10:10:20,164 INFO APP_DIR=D:\Datos de Usuarios\T72496\Desktop\PrismaProject
+2026-01-08 10:10:28,692 INFO RESULTS_DIR=D:\Datos de Usuarios\T72496\Desktop\PrismaProject\results
+2026-01-08 10:10:28,692 INFO OUTPUT_XLSM=D:\Datos de Usuarios\T72496\Desktop\PrismaProject\results\Macro_out_78801600.xlsm
+2026-01-08 10:10:28,692 INFO == FLUJO SBS (TITULAR) INICIO ==
+2026-01-08 10:10:28,693 INFO [SBS] Ir a login
+2026-01-08 10:10:29,337 INFO [SBS] Capturar captcha
+2026-01-08 10:10:30,018 INFO [SBS] Resolver captcha con Copilot
+2026-01-08 10:10:49,250 INFO [SBS] Login (usuario=T10595) + ingresar captcha
+2026-01-08 10:10:53,450 INFO [SBS] Abrir módulo deuda
+2026-01-08 10:10:54,128 INFO [SBS] Consultar DNI=78801600
+2026-01-08 10:10:55,478 INFO [SBS] Extraer datos
+2026-01-08 10:10:57,312 INFO [SBS] Ir a Detallada + screenshot
+2026-01-08 10:10:57,971 INFO [SBS] Ir a Otros Reportes
+2026-01-08 10:10:58,544 INFO [SBS] Intentar Carteras Transferidas (no bloqueante)
+2026-01-08 10:11:28,799 ERROR [SBS] Error en Otros Reportes/Carteras: TimeoutException()
+Traceback (most recent call last):
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\services\sbs_flow.py", line 54, in run
+    loaded = riesgos.click_carteras_transferidas()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\pages\sbs\riesgos_page.py", line 70, in click_carteras_transferidas
+    self.wait.until(EC.presence_of_element_located(self.OTROS_LIST))
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\support\wait.py", line 122, in until
+    raise TimeoutException(message, screen, stacktrace)
+selenium.common.exceptions.TimeoutException: Message: 
+Stacktrace:
+Symbols not available. Dumping unresolved backtrace:
+	0x7ff68efd87d5
+	0x7ff68ef48e44
+	0x7ff68f3331f2
+	0x7ff68eda2d9e
+	0x7ff68eda2ffb
+	0x7ff68edde917
+	0x7ff68ed9a2e5
+	0x7ff68eddc8de
+	0x7ff68ed9982a
+	0x7ff68ed98b33
+	0x7ff68ed99653
+	0x7ff68ee822e4
+	0x7ff68ee9109c
+	0x7ff68ee8ac7f
+	0x7ff68f069b37
+	0x7ff68ef546a6
+	0x7ff68ef4eab4
+	0x7ff68ef4ebf9
+	0x7ff68ef42cbd
+	0x7ff8c03e259d
+	0x7ff8c278af78
 
-from config.settings import *  # URLs, credenciales, etc.
-from infrastructure.edge_debug import EdgeDebugLauncher
-from infrastructure.selenium_driver import SeleniumDriverFactory
-from services.sbs_flow import SbsFlow
-from services.sunat_flow import SunatFlow
-from services.rbm_flow import RbmFlow
-from services.xlsm_session_writer import XlsmSessionWriter
-from utils.logging_utils import setup_logging
-from utils.decorators import log_exceptions
-
-
-def _get_app_dir() -> Path:
-    """Carpeta del exe (PyInstaller) o del proyecto (script)."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
-
-
-def _pick_results_dir(app_dir: Path) -> Path:
-    """
-    Intenta crear ./results al lado del exe/script.
-    Si falla por permisos, usa %LOCALAPPDATA%/PrismaProject/results (o TEMP).
-    """
-    primary = app_dir / "results"
-    try:
-        primary.mkdir(parents=True, exist_ok=True)
-        test_file = primary / ".write_test"
-        test_file.write_text("ok", encoding="utf-8")
-        test_file.unlink(missing_ok=True)
-        return primary
-    except Exception:
-        base = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()))
-        fallback = base / "PrismaProject" / "results"
-        fallback.mkdir(parents=True, exist_ok=True)
-        return fallback
-
-
-@log_exceptions
-def run_app(dni_titular: str, dni_conyuge: Optional[str] = None) -> Tuple[Path, Path]:
-    """
-    Motor reutilizable para GUI o ejecución programática.
-    - dni_titular: obligatorio
-    - dni_conyuge: opcional (si viene None/"" no se ejecuta cónyuge)
-    Retorna:
-      (out_xlsm_path, results_dir)
-    """
-    # ====== APP_DIR (primero) ======
-    app_dir = _get_app_dir()
-
-    # ====== LOGGING (robusto, con fallback) ======
-    setup_logging(app_dir)
-
-    logging.info("=== INICIO EJECUCION ===")
-    logging.info("DNI_TITULAR=%s | DNI_CONYUGE=%s", dni_titular, dni_conyuge or "")
-    logging.info("APP_DIR=%s", app_dir)
-
-    launcher = EdgeDebugLauncher()
-    launcher.ensure_running()
-    driver = SeleniumDriverFactory.create()
-
-    try:
-        # ====== Macro.xlsm debe estar junto al exe ======
-        macro_path = app_dir / "Macro.xlsm"
-        if not macro_path.exists():
-            raise FileNotFoundError(f"No se encontró Macro.xlsm junto al ejecutable: {macro_path}")
-
-        # ====== Carpeta results (con fallback) ======
-        results_dir = _pick_results_dir(app_dir)
-
-        # normalizar dni_conyuge
-        dni_conyuge = (dni_conyuge or "").strip() or None
-
-        # ====== Output ======
-        out_xlsm = (results_dir / "Macro_out.xlsm").with_name(f"Macro_out_{dni_titular}.xlsm")
-
-        # ====== Evidencias TITULAR ======
-        captcha_img_path = results_dir / "captura.png"
-        detallada_img_path = results_dir / "detallada.png"
-        otros_img_path = results_dir / "otros_reportes.png"
-
-        # SBS CONYUGE (si aplica)
-        captcha_img_cony_path = results_dir / "sbs_captura_conyuge.png"
-        detallada_img_cony_path = results_dir / "sbs_detallada_conyuge.png"
-        otros_img_cony_path = results_dir / "sbs_otros_reportes_conyuge.png"
-
-        # SUNAT (solo titular)
-        sunat_img_path = results_dir / "sunat_panel.png"
-
-        # RBM titular
-        rbm_consumos_img_path = results_dir / "rbm_consumos.png"
-        rbm_cem_img_path = results_dir / "rbm_cem.png"
-
-        # RBM conyuge (si aplica)
-        rbm_consumos_cony_path = results_dir / "rbm_consumos_conyuge.png"
-        rbm_cem_cony_path = results_dir / "rbm_cem_conyuge.png"
-
-        logging.info("RESULTS_DIR=%s", results_dir)
-        logging.info("OUTPUT_XLSM=%s", out_xlsm)
-
-        # ==========================================================
-        # 1) SBS TITULAR
-        # ==========================================================
-        logging.info("== FLUJO SBS (TITULAR) INICIO ==")
-        _ = SbsFlow(driver, USUARIO, CLAVE).run(
-            dni=dni_titular,
-            captcha_img_path=captcha_img_path,
-            detallada_img_path=detallada_img_path,
-            otros_img_path=otros_img_path,
-        )
-        logging.info("== FLUJO SBS (TITULAR) FIN ==")
-
-        # ==========================================================
-        # 1.1) SBS CONYUGE (opcional)
-        # ==========================================================
-        if dni_conyuge:
-            logging.info("== FLUJO SBS (CONYUGE) INICIO ==")
-            _ = SbsFlow(driver, USUARIO, CLAVE).run(
-                dni=dni_conyuge,
-                captcha_img_path=captcha_img_cony_path,
-                detallada_img_path=detallada_img_cony_path,
-                otros_img_path=otros_img_cony_path,
-            )
-            logging.info("== FLUJO SBS (CONYUGE) FIN ==")
-
-        # ==========================================================
-        # 2) SUNAT TITULAR
-        # ==========================================================
-        logging.info("== FLUJO SUNAT (TITULAR) INICIO ==")
-        try:
-            driver.delete_all_cookies()
-        except Exception:
-            pass
-        SunatFlow(driver).run(dni=dni_titular, out_img_path=sunat_img_path)
-        logging.info("== FLUJO SUNAT (TITULAR) FIN ==")
-
-        # ==========================================================
-        # 3) RBM TITULAR
-        # ==========================================================
-        logging.info("== FLUJO RBM (TITULAR) INICIO ==")
-        rbm_titular = RbmFlow(driver).run(
-            dni=dni_titular,
-            consumos_img_path=rbm_consumos_img_path,
-            cem_img_path=rbm_cem_img_path,
-        )
-        rbm_inicio_tit = rbm_titular.get("inicio", {}) if isinstance(rbm_titular, dict) else {}
-        rbm_cem_tit = rbm_titular.get("cem", {}) if isinstance(rbm_titular, dict) else {}
-        logging.info("RBM titular inicio=%s", rbm_inicio_tit)
-        logging.info("RBM titular cem=%s", rbm_cem_tit)
-        logging.info("== FLUJO RBM (TITULAR) FIN ==")
-
-        # ==========================================================
-        # 4) RBM CONYUGE (opcional, en nueva pestaña)
-        # ==========================================================
-        rbm_inicio_cony = {}
-        rbm_cem_cony = {}
-        if dni_conyuge:
-            logging.info("== FLUJO RBM (CONYUGE) INICIO ==")
-            original_handle_rbm = driver.current_window_handle
-            rbm_conyuge = {}
-            try:
-                driver.switch_to.new_window("tab")
-                rbm_conyuge = RbmFlow(driver).run(
-                    dni=dni_conyuge,
-                    consumos_img_path=rbm_consumos_cony_path,
-                    cem_img_path=rbm_cem_cony_path,
-                )
-            finally:
-                try:
-                    driver.close()
-                except Exception:
-                    pass
-                try:
-                    driver.switch_to.window(original_handle_rbm)
-                except Exception:
-                    pass
-
-            rbm_inicio_cony = rbm_conyuge.get("inicio", {}) if isinstance(rbm_conyuge, dict) else {}
-            rbm_cem_cony = rbm_conyuge.get("cem", {}) if isinstance(rbm_conyuge, dict) else {}
-            logging.info("RBM conyuge inicio=%s", rbm_inicio_cony)
-            logging.info("RBM conyuge cem=%s", rbm_cem_cony)
-            logging.info("== FLUJO RBM (CONYUGE) FIN ==")
-
-        # ==========================================================
-        # 5) Escribir todo en XLSM
-        # ==========================================================
-        logging.info("== ESCRITURA XLSM INICIO ==")
-
-        cem_row_map = [
-            ("hipotecario", 26),
-            ("cef", 27),
-            ("vehicular", 28),
-            ("pyme", 29),
-            ("comercial", 30),
-            ("deuda_indirecta", 31),
-            ("tarjeta", 32),
-            ("linea_no_utilizada", 33),
-        ]
-
-        with XlsmSessionWriter(macro_path) as writer:
-            writer.write_cell("Inicio", "C11", rbm_inicio_tit.get("segmento"))
-            writer.write_cell("Inicio", "C12", rbm_inicio_tit.get("segmento_riesgo"))
-            writer.write_cell("Inicio", "C13", rbm_inicio_tit.get("pdh"))
-            writer.write_cell("Inicio", "C15", rbm_inicio_tit.get("score_rcc"))
-
-            for key, row in cem_row_map:
-                item = rbm_cem_tit.get(key, {}) or {}
-                writer.write_cell("Inicio", f"C{row}", item.get("cuota_bcp", 0))
-                writer.write_cell("Inicio", f"D{row}", item.get("cuota_sbs", 0))
-                writer.write_cell("Inicio", f"E{row}", item.get("saldo_sbs", 0))
-
-            if dni_conyuge:
-                writer.write_cell("Inicio", "D11", rbm_inicio_cony.get("segmento"))
-                writer.write_cell("Inicio", "D12", rbm_inicio_cony.get("segmento_riesgo"))
-                writer.write_cell("Inicio", "D15", rbm_inicio_cony.get("score_rcc"))
-
-                for key, row in cem_row_map:
-                    item = rbm_cem_cony.get(key, {}) or {}
-                    writer.write_cell("Inicio", f"G{row}", item.get("cuota_bcp", 0))
-                    writer.write_cell("Inicio", f"H{row}", item.get("cuota_sbs", 0))
-                    writer.write_cell("Inicio", f"I{row}", item.get("saldo_sbs", 0))
-
-            writer.add_image_to_range("SBS", detallada_img_path, "C64", "Z110")
-            writer.add_image_to_range("SBS", otros_img_path, "C5", "Z50")
-            if dni_conyuge:
-                writer.add_image_to_range("SBS", detallada_img_cony_path, "AI64", "AY110")
-                writer.add_image_to_range("SBS", otros_img_cony_path, "AI5", "AY50")
-
-            writer.add_image_to_range("SUNAT", sunat_img_path, "C5", "O51")
-
-            writer.add_image_to_range("RBM", rbm_consumos_img_path, "C5", "Z50")
-            writer.add_image_to_range("RBM", rbm_cem_img_path, "C64", "Z106")
-            if dni_conyuge:
-                writer.add_image_to_range("RBM", rbm_consumos_cony_path, "AI5", "AY50")
-                writer.add_image_to_range("RBM", rbm_cem_cony_path, "AI64", "AY106")
-
-            writer.save(out_xlsm)
-
-        logging.info("== ESCRITURA XLSM FIN ==")
-        logging.info("XLSM final generado: %s", out_xlsm.resolve())
-        logging.info("Evidencias guardadas en: %s", results_dir.resolve())
-        print(f"XLSM final generado: {out_xlsm.resolve()}")
-        print(f"Evidencias guardadas en: {results_dir.resolve()}")
-
-        return out_xlsm, results_dir
-
-    finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
-        try:
-            launcher.close()
-        except Exception:
-            pass
-
-        logging.info("=== FIN EJECUCION ===")
-        logging.shutdown()
+2026-01-08 10:11:29,028 INFO [SBS] Logout módulo
+2026-01-08 10:11:29,618 INFO [SBS] Logout portal
+2026-01-08 10:11:30,413 INFO [SBS] Fin flujo OK
+2026-01-08 10:11:30,413 INFO == FLUJO SBS (TITULAR) FIN ==
+2026-01-08 10:11:30,413 INFO == FLUJO SUNAT (TITULAR) INICIO ==
+2026-01-08 10:12:05,747 INFO === FIN EJECUCION ===
+2026-01-08 10:12:05,762 ERROR EXCEPCION:
+Traceback (most recent call last):
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\utils\decorators.py", line 9, in wrapper
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\main.py", line 141, in run_app
+    SunatFlow(driver).run(dni=dni_titular, out_img_path=sunat_img_path)
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\services\sunat_flow.py", line 9, in run
+    self.page.buscar_por_dni(dni)
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\pages\sunat\sunat_page.py", line 25, in buscar_por_dni
+    inp = self.wait.until(EC.element_to_be_clickable(self.TXT_NUM_DOC))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\support\wait.py", line 122, in until
+    raise TimeoutException(message, screen, stacktrace)
+selenium.common.exceptions.TimeoutException: Message: 
 
 
-@log_exceptions
-def main():
-    run_app(DNI_CONSULTA, DNI_CONYUGE_CONSULTA)
-
-
-if __name__ == "__main__":
-    main()
