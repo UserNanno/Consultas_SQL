@@ -1,51 +1,81 @@
-Deberá ingresar acá:
-https://extranet.sbs.gob.pe/CambioClave/pages/cerrarSesiones.jsf
-
-Y colocar el usuario aqui:
-
-<td><input id="Formulario:txtCodUsuario" name="Formulario:txtCodUsuario" type="text" maxlength="16" onblur="value=value.toUpperCase()" aria-required="true" class="ui-inputfield ui-inputtext ui-widget ui-state-default ui-corner-all" role="textbox" aria-disabled="false" aria-readonly="false"></td>
+URL_SBS_CERRAR_SESIONES = "https://extranet.sbs.gob.pe/CambioClave/pages/cerrarSesiones.jsf"
 
 
-Y la contraseña primero debes dar click en el input, 
-    
-<td><input id="Formulario:txtClave" name="Formulario:txtClave" type="password" maxlength="16" class="ui-inputfield ui-keyboard-input ui-widget ui-state-default ui-corner-all hasKeypad" aria-required="true" readonly="readonly" role="textbox" aria-disabled="false" aria-readonly="true"></td>
+sbs_cerrar_sesiones_page.py
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+
+from pages.base_page import BasePage
+from config.settings import URL_SBS_CERRAR_SESIONES
 
 
-luego se aperturará unas opciones de dar click los numeros
+class SbsCerrarSesionesPage(BasePage):
+    # Inputs
+    TXT_USUARIO = (By.ID, "Formulario:txtCodUsuario")
+    TXT_CLAVE = (By.ID, "Formulario:txtClave")
+    BTN_CONTINUAR = (By.ID, "Formulario:btnContinuar")
 
-<div id="keypad-div" style="position: absolute; top: 476.4px; width: auto; z-index: 1001; left: 346.2px; display: block;" class="ui-widget ui-widget-content ui-corner-all ui-shadow"><div class="keypad-row"><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">1</button><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">2</button><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">3</button><button type="button" class="keypad-key ui-state-default keypad-close" title="Close the keypad" role="button" aria-disabled="false">Cerrar</button></div><div class="keypad-row"><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">4</button><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">5</button><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">6</button><button type="button" class="keypad-key ui-state-default keypad-clear" title="Erase all the text" role="button" aria-disabled="false">Limpiar</button></div><div class="keypad-row"><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">7</button><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">8</button><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">9</button><button type="button" class="keypad-key ui-state-default keypad-back" title="Erase the previous character" role="button" aria-disabled="false">Back</button></div><div class="keypad-row"><div class="keypad-space"></div><button type="button" class="keypad-key ui-state-default" title="" role="button" aria-disabled="false">0</button></div><div style="clear: both;"></div></div>
+    # Keypad
+    KEYPAD_DIV = (By.ID, "keypad-div")
+    KEYPAD_CLEAR = (By.CSS_SELECTOR, "#keypad-div .keypad-key.keypad-clear")  # "Limpiar"
 
+    # Resultado OK
+    H1_OK = (By.XPATH, "//h1[contains(.,'Ha cerrado la sesión activa satisfactoriamente')]")
 
-Y luego deberá dar click en el boton de continuar
+    def open(self):
+        self.driver.get(URL_SBS_CERRAR_SESIONES)
+        self.wait.until(EC.presence_of_element_located(self.TXT_USUARIO))
 
-<td><button id="Formulario:btnContinuar" name="Formulario:btnContinuar" class="ui-button ui-widget ui-state-default ui-corner-all ui-button-text-only" onclick="PrimeFaces.ab({s:&quot;Formulario:btnContinuar&quot;,u:&quot;Formulario&quot;});return false;" type="submit" role="button" aria-disabled="false"><span class="ui-button-text ui-c">Continuar</span></button></td>
+    def _open_keypad(self):
+        # Click en el input (es readonly y abre keypad)
+        self.wait.until(EC.element_to_be_clickable(self.TXT_CLAVE)).click()
+        self.wait.until(EC.visibility_of_element_located(self.KEYPAD_DIV))
 
+    def _clear_keypad(self):
+        # Click Limpiar si existe/visible (buena práctica)
+        try:
+            self.wait.until(EC.element_to_be_clickable(self.KEYPAD_CLEAR)).click()
+        except Exception:
+            # Si no está, no pasa nada
+            pass
 
-Cargará esta pagina: https://extranet.sbs.gob.pe/CambioClave/pages/cerrarSesiones.jsf
+    def _press_digit(self, digit: str):
+        # Botón por texto exacto dentro del keypad
+        btn = (By.XPATH, f"//div[@id='keypad-div']//button[contains(@class,'keypad-key') and normalize-space(text())='{digit}']")
+        self.wait.until(EC.element_to_be_clickable(btn)).click()
 
-<body>
-	<div class="cuerpoPagina">
-		<div class="cuerpoOpcion">
-		<h1>Ha cerrado la sesión activa satisfactoriamente</h1>
+    def cerrar_sesion(self, user: str, password: str, timeout_ok: int = 15) -> None:
+        """
+        Ingresa usuario + clave via keypad y presiona Continuar.
+        Espera la confirmación de cierre de sesión.
+        """
+        # Usuario
+        usuario = self.wait.until(EC.element_to_be_clickable(self.TXT_USUARIO))
+        usuario.click()
+        usuario.clear()
+        usuario.send_keys(user)
 
-		<div style="text-align: center;">
-			<a href="http://extranet.sbs.gob.pe/app/login.jsp">Ir al Portal del Supervisado</a>
-		</div>
-		</div>
-		<table id="pie">
-			<tbody><tr>
-				<td>
-					Superintendencia de Banca, Seguros y AFP - Todos los derechos reservados -
-					2026
-				</td>
-			</tr>
-			<tr>
-				<td>
-					Contáctenos a: <a href="mailto:mesa-ayuda@sbs.gob.pe">mesa-ayuda@sbs.gob.pe</a>
-				</td>
-			</tr>
-		</tbody></table>
-	</div></body>
+        # Keypad
+        self._open_keypad()
+        self._clear_keypad()
 
+        # Password por dígitos
+        pwd = (password or "").strip()
+        if not pwd:
+            raise ValueError("Password SBS vacío. No se puede cerrar sesión previa.")
 
-Donde indica que ya se cerró la sesión y luego continuamos con nuestro flujo normal. Esto debe hacerse cada que inicia el flujo desde 0
+        if not pwd.isdigit():
+            raise ValueError("La clave SBS para 'Cerrar Sesiones' debe ser numérica (keypad).")
+
+        for ch in pwd:
+            self._press_digit(ch)
+
+        # Continuar
+        self.wait.until(EC.element_to_be_clickable(self.BTN_CONTINUAR)).click()
+
+        # Confirmación
+        WebDriverWait(self.driver, timeout_ok).until(
+            EC.presence_of_element_located(self.H1_OK)
+        )
