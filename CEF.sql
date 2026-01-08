@@ -1,12 +1,13 @@
 import logging
-import tempfile
-from pathlib import Path
+import traceback
+from functools import wraps
 
-LOG_PATH = Path(tempfile.gettempdir()) / "prisma_selenium.log"
-
-def setup_logging():
-    logging.basicConfig(
-        filename=str(LOG_PATH),
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s"
-    )
+def log_exceptions(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            logging.error("EXCEPCION:\n%s", traceback.format_exc())
+            raise
+    return wrapper
