@@ -1,38 +1,68 @@
-import json
-import os
-import tempfile
-from pathlib import Path
-from typing import Tuple
+import tkinter as tk
+from tkinter import ttk, messagebox
 
-APP_NAME = "PrismaProject"
-FILE_NAME = "credentials.json"
+from config.credentials_store import load_sbs_credentials, save_sbs_credentials
 
 
-def _base_dir() -> Path:
-    base = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()))
-    d = base / APP_NAME
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+class SbsCredentialsWindow(tk.Toplevel):
+    def __init__(self, master=None):
+        super().__init__(master)
+        self.title("Credenciales SBS")
+        self.resizable(False, False)
+        self.transient(master)   # ventana encima del parent
+        self.grab_set()          # modal
 
+        user, pwd = load_sbs_credentials("", "")
 
-def get_credentials_path() -> Path:
-    return _base_dir() / FILE_NAME
+        root = ttk.Frame(self, padding=12)
+        root.pack(fill="both", expand=True)
 
+        ttk.Label(root, text="SBS", font=("Segoe UI", 11, "bold")).grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 10)
+        )
 
-def load_sbs_credentials(default_user: str = "", default_pass: str = "") -> Tuple[str, str]:
-    path = get_credentials_path()
-    if not path.exists():
-        return default_user, default_pass
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        user = (data.get("sbs_user") or "").strip() or default_user
-        pwd = (data.get("sbs_pass") or "").strip() or default_pass
-        return user, pwd
-    except Exception:
-        return default_user, default_pass
+        ttk.Label(root, text="Usuario").grid(row=1, column=0, sticky="w")
+        self.var_user = tk.StringVar(value=user)
+        self.ent_user = ttk.Entry(root, textvariable=self.var_user, width=28, state="disabled")
+        self.ent_user.grid(row=2, column=0, sticky="w", padx=(0, 10))
 
+        ttk.Label(root, text="Contraseña").grid(row=1, column=1, sticky="w")
+        self.var_pwd = tk.StringVar(value=pwd)
+        self.ent_pwd = ttk.Entry(root, textvariable=self.var_pwd, width=28, show="*", state="disabled")
+        self.ent_pwd.grid(row=2, column=1, sticky="w")
 
-def save_sbs_credentials(user: str, pwd: str) -> None:
-    path = get_credentials_path()
-    payload = {"sbs_user": user.strip(), "sbs_pass": pwd.strip()}
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        actions = ttk.Frame(root)
+        actions.grid(row=3, column=0, columnspan=2, sticky="e", pady=(12, 0))
+
+        self.btn_edit = ttk.Button(actions, text="Editar", command=self._toggle_edit)
+        self.btn_edit.pack(side="left")
+
+        self.btn_save = ttk.Button(actions, text="Guardar", state="disabled", command=self._save)
+        self.btn_save.pack(side="left", padx=(8, 0))
+
+        self._editing = False
+
+    def _toggle_edit(self):
+        self._editing = not self._editing
+        state = "normal" if self._editing else "disabled"
+
+        self.ent_user.config(state=state)
+        self.ent_pwd.config(state=state)
+
+        self.btn_save.config(state=("normal" if self._editing else "disabled"))
+        self.btn_edit.config(text=("Cancelar" if self._editing else "Editar"))
+
+        if self._editing:
+            self.ent_user.focus_set()
+
+    def _save(self):
+        user = (self.var_user.get() or "").strip()
+        pwd = (self.var_pwd.get() or "").strip()
+
+        if not user or not pwd:
+            messagebox.showwarning("Validación", "Usuario y contraseña no pueden estar vacíos.")
+            return
+
+        save_sbs_credentials(user, pwd)
+        messagebox.showinfo("OK", "Credenciales SBS guardadas.")
+        self.destroy()
