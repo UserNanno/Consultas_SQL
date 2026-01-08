@@ -1,33 +1,45 @@
-from __future__ import annotations
-import json
-import os
-from pathlib import Path
-from typing import Optional
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+from config.analyst_store import load_matanalista, save_matanalista
 
 
-def _app_dir() -> Path:
-    base = Path(os.environ.get("LOCALAPPDATA", Path.home()))
-    return base / "PrismaProject"
+class MatanalistaWindow(tk.Toplevel):
+    def __init__(self, master):
+        super().__init__(master)
+        self.title("Matrícula Analista")
+        self.resizable(False, False)
 
+        self.var_mat = tk.StringVar(value=load_matanalista(""))
 
-def _analyst_path() -> Path:
-    d = _app_dir()
-    d.mkdir(parents=True, exist_ok=True)
-    return d / "analyst.json"
+        frm = ttk.Frame(self, padding=12)
+        frm.pack(fill="both", expand=True)
 
+        ttk.Label(frm, text="MATANALISTA (obligatorio):").grid(row=0, column=0, sticky="w")
+        ent = ttk.Entry(frm, textvariable=self.var_mat, width=26)
+        ent.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ent.focus_set()
 
-def load_matanalista(default: str = "") -> str:
-    p = _analyst_path()
-    if not p.exists():
-        return default
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return (data.get("matanalista") or default).strip()
-    except Exception:
-        return default
+        btns = ttk.Frame(frm)
+        btns.grid(row=2, column=0, sticky="w", pady=(12, 0))
 
+        ttk.Button(btns, text="Guardar", command=self._save).pack(side="left")
+        ttk.Button(btns, text="Cerrar", command=self.destroy).pack(side="left", padx=(8, 0))
 
-def save_matanalista(matanalista: str) -> None:
-    p = _analyst_path()
-    payload = {"matanalista": (matanalista or "").strip()}
-    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.bind("<Return>", lambda e: self._save())
+
+        # modal
+        self.transient(master)
+        self.grab_set()
+
+    def _save(self):
+        mat = (self.var_mat.get() or "").strip()
+        if not mat:
+            messagebox.showerror("Validación", "MATANALISTA es obligatorio.")
+            return
+
+        # Normalizamos (opcional): uppercase sin espacios
+        mat = mat.upper().replace(" ", "")
+        save_matanalista(mat)
+        messagebox.showinfo("OK", "MATANALISTA guardado.")
+        self.destroy()
