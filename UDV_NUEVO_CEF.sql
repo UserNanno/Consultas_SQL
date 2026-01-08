@@ -1,155 +1,109 @@
-<body>
-  
-  	
-	<div class="container">
-		<div class="header hidden" id="divHeader">
-			<div class="col-md-10 col-md-offset-1">
-	        	<img src="/a/imagenes/logo_2015.png" class="imgLogo">
-			</div>
-	    </div>
-	    <div class="row">	
-	        <div class="col-md-10 col-md-offset-1">
-	        	<div>
-	        		<h1>Consulta RUC</h1>
-	        	</div>
-	        	<div class="divBotoneraArriba text-center">				 
-	        		 
-					<button type="button" class="btn btn-danger btnNuevaConsulta">Volver</button>
-	        	</div> 
-			    <div class="panel panel-primary">
-				  <div class="panel-heading">Relación de contribuyentes</div>
-				  <div class="list-group">
-					  
-					  
-						
-						
-						
-									<a href="#" class="list-group-item clearfix aRucs" data-ruc="10788016005">
-									    <h4 class="list-group-item-heading">RUC: 10788016005</h4>
-									    <h4 class="list-group-item-heading">CANECILLAS CONTRERAS JUAN MARIANO</h4>
-									    <p class="list-group-item-text">Ubicación: LIMA</p>
-									    
-									    
-									    <p class="list-group-item-text">Estado: <strong><span class="text-success">ACTIVO</span></strong></p>
-									    
-									    <span class="glyphicon glyphicon-chevron-right pull-right" aria-hidden="true"></span>
-									    
-									  </a>
-						
-						
-					
-					  
-					</div>
-				  
-				   
-				  
-				  
-				  <div class="panel-footer text-center">
-				  	<small>Fecha consulta: 08/01/2026 16:09</small>
-				  </div><!-- fin footer del panel -->
-				</div><!--fin panel-->
-				
-				
-				<div class="text-center divBotonera">	        		 
-	        		  <a href="FrameCriterioBusquedaWeb.jsp" class="hidden" id="aNuevaConsulta">Volver</a>					 
-					<button type="button" class="btn btn-danger btnNuevaConsulta">Volver</button>
-	        	</div>
-				
-	         </div><!--fin col-->
-	    </div><!--fin row-->
-		<footer class="footer text-center">
-			<div class="col-md-10 col-md-offset-1">
-				<p><small>© 1997 - 2026 SUNAT Derechos Reservados</small></p>
-			</div>
-		</footer>
-	</div><!--fin container--> 
-	
-	
-	
-  
-	<form action="/cl-ti-itmrconsruc/jcrS00Alias" method="post" name="selecXNroRuc">
-		<input type="hidden" name="accion" value="consPorRuc">
-		<input type="hidden" name="actReturn" value="1">
-		<input type="hidden" name="nroRuc" value="">
-		<input type="hidden" name="numRnd" value="1413385332">			
-		<input type="hidden" name="modo" value="1">
-	</form>	    
-	
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.common.exceptions import TimeoutException
+from pages.base_page import BasePage
+from config.settings import URL_SUNAT
 
 
-    <script src="/a/js/libs/jquery/1.11.1/jquery.min.js"></script>
-    <script src="/a/js/libs/bootstrap/3.3.1/js/bootstrap.min.js"></script>
-    <script>
-    	$( document ).ready(function() {
-    		$.ajaxSetup({ scriptCharset: "utf-8" , contentType: "application/json; charset=utf-8"});
-    	    jQuery.support.cors = true;
+class SunatPage(BasePage):
+    BTN_POR_DOCUMENTO = (By.ID, "btnPorDocumento")
+    CMB_TIPO_DOC = (By.ID, "cmbTipoDoc")
+    TXT_NUM_DOC = (By.ID, "txtNumeroDocumento")
+    BTN_BUSCAR = (By.ID, "btnAceptar")
 
-    	    iniciaVariables();
-    	    iniciaBotones();   
-    	});
+    # ✅ Lista de contribuyentes
+    RESULT_ITEM = (By.CSS_SELECTOR, "a.aRucs.list-group-item, a.aRucs")
 
+    PANEL_RESULTADO = (By.CSS_SELECTOR, "div.panel.panel-primary")
 
-    	
-    	 
-    	 
-    	/*Funciones usadas por la aplicación*/
-    	function iniciaBotones(){
-    	    //resetea estado inicial del formulario
-    	   
+    # ✅ Caso SIN RUC
+    NO_RUC_STRONG = (
+        By.XPATH,
+        "//strong[contains(translate(., 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NO REGISTRA')]"
+    )
 
-    	    aRucs.bind('click',function(event){
-				var dataRuc=$(this).attr("data-ruc");
-				sendNroRuc(dataRuc);
-				
-				
-				event.preventDefault();
-                event.stopImmediatePropagation();
-                return false;
-    	    });    
+    # ✅ Form que la web usa para continuar al detalle del RUC
+    FORM_SELEC = (By.NAME, "selecXNroRuc")
 
-    	    $(".btnNuevaConsulta").bind('click',function(event){
-    	    	regresa();        		
-        		
-        		event.preventDefault();
-        		event.stopImmediatePropagation();
-        		return false;
-        	});  
-    	    
-    	}
-    	
-    	function regresa(){
-    		var href = $("#aNuevaConsulta").attr('href');
-    		window.location.href = href;
-    	}
-    	function irHome(){
-    		regresa();
-    	}
-    	
-    	function sendNroRuc(cc){
-    	    document.selecXNroRuc.nroRuc.value = cc;
-    		document.selecXNroRuc.submit();
-    	}
-    	
+    def open(self):
+        self.driver.get(URL_SUNAT)
+        self.wait.until(EC.presence_of_element_located(self.BTN_POR_DOCUMENTO))
 
-    	/*Variables del app*/
+    def _submit_ruc_form(self, ruc: str):
+        """
+        Hace lo mismo que el JS de la página:
+          document.selecXNroRuc.nroRuc.value = ruc;
+          document.selecXNroRuc.submit();
+        Mucho más estable que click en <a>.
+        """
+        # asegura que el form exista
+        self.wait.until(EC.presence_of_element_located(self.FORM_SELEC))
 
-    	
-    	/*Declarar variables*/
-    	var aRucs=null;
-    	
+        js = """
+        const ruc = arguments[0];
+        if (!document.selecXNroRuc) { return "NO_FORM"; }
+        document.selecXNroRuc.nroRuc.value = ruc;
+        document.selecXNroRuc.submit();
+        return "OK";
+        """
+        return self.driver.execute_script(js, ruc)
 
-    	/*Iniciar variables*/
-    	function iniciaVariables(){
-    		aRucs=$(".aRucs");
-    	}
-    	
-    	
-    	
-    	
-    	
-	  
-	</script>
-	
-    <script src="/a/js/apps/workspace/ws.js"></script>
-  
-</body>
+    def buscar_por_dni(self, dni: str, timeout_result: int = 10) -> dict:
+        """
+        Retorna:
+          {"status": "OK"|"SIN_RUC", "dni": dni, "ruc": "..."/None}
+        """
+        # 1) Por Documento
+        self.wait.until(EC.element_to_be_clickable(self.BTN_POR_DOCUMENTO)).click()
+
+        # 2) Tipo doc = DNI (value="1")
+        sel = Select(self.wait.until(EC.presence_of_element_located(self.CMB_TIPO_DOC)))
+        sel.select_by_value("1")
+
+        # 3) Número documento
+        inp = self.wait.until(EC.element_to_be_clickable(self.TXT_NUM_DOC))
+        inp.click()
+        inp.clear()
+        inp.send_keys(dni)
+
+        # 4) Buscar
+        self.wait.until(EC.element_to_be_clickable(self.BTN_BUSCAR)).click()
+
+        # 5) Esperar outcome: SIN_RUC o lista con RUC
+        w = WebDriverWait(self.driver, timeout_result)
+        try:
+            w.until(EC.presence_of_element_located(self.NO_RUC_STRONG))
+            self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
+            return {"status": "SIN_RUC", "dni": dni, "ruc": None}
+        except TimeoutException:
+            # Caso OK: obtener primer RUC
+            first = w.until(EC.presence_of_element_located(self.RESULT_ITEM))
+
+            # a veces está, pero click no funciona; tomamos el data-ruc y enviamos form
+            ruc = first.get_attribute("data-ruc")
+            if not ruc:
+                # fallback: intenta click normal si no hay data-ruc por algún motivo
+                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", first)
+                self.driver.execute_script("arguments[0].click();", first)
+            else:
+                self._submit_ruc_form(ruc)
+
+            # 6) Esperar que cambie a la página de detalle del RUC.
+            # En la práctica, aquí cambia el contenido y/o URL. Esperamos que desaparezca la lista
+            # o que cambie el panel a uno distinto (si tienes un selector mejor del detalle, úsalo).
+            w.until(EC.staleness_of(first))
+
+            # y esperamos el panel final
+            self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
+            return {"status": "OK", "dni": dni, "ruc": ruc}
+
+    def screenshot_panel_resultado(self, out_path):
+        panel = self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", panel)
+        panel.screenshot(str(out_path))
+
+    def screenshot_body(self, out_path):
+        body = self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", body)
+        body.screenshot(str(out_path))
