@@ -1,49 +1,99 @@
-<div class="cuerpoPagina">
-		<div class="cuerpoOpcion">
-		<h1>Cerrar sesión activa del Portal del Supervisado</h1>
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException
 
-		<p>Si no salió correctamente del Portal del Supervisado dando
-			clic en el botón "Salir", puede que aún siga
-			conectado, incluso si cerro el navegador o apago el ordenador.</p>
+from pages.base_page import BasePage
+from config.settings import URL_SBS_CERRAR_SESIONES
 
-		<p>Ingrese la siguiente información para cerrar la
-			sesión activa:</p>
 
-<form id="Formulario" name="Formulario" method="post" action="/CambioClave/pages/cerrarSesiones.jsf" enctype="application/x-www-form-urlencoded">
-<input type="hidden" name="Formulario" value="Formulario">
-<div id="Formulario:messages" class="ui-messages ui-widget" aria-live="polite"><div class="ui-messages-error ui-corner-all"><a href="#" class="ui-messages-close" onclick="$(this).parent().slideUp();return false;"><span class="ui-icon ui-icon-close"></span></a><span class="ui-messages-error-icon"></span><ul><li><span class="ui-messages-error-detail">No existen sesiones activas con el usuario que ha ingresado.</span></li></ul></div></div><table cellpadding="5">
-<tbody>
-<tr>
-<td>Cuenta de usuario:</td>
-<td>Contraseña:</td>
-<td></td>
-</tr>
-<tr>
-<td><input id="Formulario:txtCodUsuario" name="Formulario:txtCodUsuario" type="text" value="T10595" maxlength="16" onblur="value=value.toUpperCase()" aria-required="true" class="ui-inputfield ui-inputtext ui-widget ui-state-default ui-corner-all" role="textbox" aria-disabled="false" aria-readonly="false"></td>
-<td><input id="Formulario:txtClave" name="Formulario:txtClave" type="password" value="44445555" maxlength="16" class="ui-inputfield ui-keyboard-input ui-widget ui-state-default ui-corner-all hasKeypad" aria-required="true" readonly="readonly" role="textbox" aria-disabled="false" aria-readonly="true"></td>
-<td><button id="Formulario:btnContinuar" name="Formulario:btnContinuar" class="ui-button ui-widget ui-state-default ui-corner-all ui-button-text-only" onclick="PrimeFaces.ab({s:&quot;Formulario:btnContinuar&quot;,u:&quot;Formulario&quot;});return false;" type="submit" role="button" aria-disabled="false"><span class="ui-button-text ui-c">Continuar</span></button></td>
-</tr>
-</tbody>
-</table>
+class CerrarSesionesPage(BasePage):
+    # Inputs
+    TXT_USUARIO = (By.ID, "Formulario:txtCodUsuario")
+    TXT_CLAVE = (By.ID, "Formulario:txtClave")
+    BTN_CONTINUAR = (By.ID, "Formulario:btnContinuar")
 
-<input type="hidden" name="javax.faces.ViewState" value="-7322081331734176195:-6944959316240500823" autocomplete="off"></form>
+    # Keypad
+    KEYPAD_DIV = (By.ID, "keypad-div")
+    KEYPAD_CLEAR = (By.CSS_SELECTOR, "#keypad-div .keypad-key.keypad-clear")  # Limpiar
 
-		<div style="text-align: center; padding-top: 15px;">
-			<a href="http://extranet.sbs.gob.pe/app/login.jsp">Regresar al Portal del
-				Supervisado</a>
-		</div>
-		</div>
-		<table id="pie">
-			<tbody><tr>
-				<td>
-					Superintendencia de Banca, Seguros y AFP - Todos los derechos reservados -
-					2026
-				</td>
-			</tr>
-			<tr>
-				<td>
-					Contáctenos a: <a href="mailto:mesa-ayuda@sbs.gob.pe">mesa-ayuda@sbs.gob.pe</a>
-				</td>
-			</tr>
-		</tbody></table>
-	</div>
+    # Resultado 1: cerró sesión
+    H1_OK = (By.XPATH, "//h1[contains(.,'Ha cerrado la sesión activa satisfactoriamente')]")
+
+    # Resultado 2: no había sesiones activas (esto también es OK)
+    NO_SESIONES_MSG = (
+        By.XPATH,
+        "//span[contains(@class,'ui-messages-error-detail') and contains(.,'No existen sesiones activas')]"
+    )
+
+    def open(self):
+        self.driver.get(URL_SBS_CERRAR_SESIONES)
+        self.wait.until(EC.presence_of_element_located(self.TXT_USUARIO))
+
+    def _open_keypad(self):
+        self.wait.until(EC.element_to_be_clickable(self.TXT_CLAVE)).click()
+        self.wait.until(EC.visibility_of_element_located(self.KEYPAD_DIV))
+
+    def _clear(self):
+        try:
+            self.wait.until(EC.element_to_be_clickable(self.KEYPAD_CLEAR)).click()
+        except Exception:
+            pass
+
+    def _press_digit(self, d: str):
+        btn = (
+            By.XPATH,
+            f"//div[@id='keypad-div']//button[contains(@class,'keypad-key') and normalize-space(text())='{d}']"
+        )
+        self.wait.until(EC.element_to_be_clickable(btn)).click()
+
+    def _wait_outcome(self, timeout: int = 12) -> str:
+        """
+        Espera cualquiera de los 2 outcomes y retorna:
+          - "CERRADA" o "NO_ACTIVAS"
+        """
+        w = WebDriverWait(self.driver, timeout)
+
+        # esperamos el primero que aparezca
+        try:
+            w.until(lambda d: (
+                len(d.find_elements(*self.H1_OK)) > 0
+                or len(d.find_elements(*self.NO_SESIONES_MSG)) > 0
+            ))
+        except TimeoutException:
+            raise TimeoutException("No se detectó resultado de cierre de sesión (ni OK ni 'No existen sesiones activas').")
+
+        if len(self.driver.find_elements(*self.H1_OK)) > 0:
+            return "CERRADA"
+        return "NO_ACTIVAS"
+
+    def cerrar_sesion(self, usuario: str, clave: str) -> str:
+        """
+        Retorna:
+          - "CERRADA"   -> cerró una sesión activa
+          - "NO_ACTIVAS"-> no existían sesiones activas (esperado)
+        """
+        # usuario
+        inp_user = self.wait.until(EC.element_to_be_clickable(self.TXT_USUARIO))
+        inp_user.click()
+        inp_user.clear()
+        inp_user.send_keys(usuario)
+
+        # clave por keypad (numérica)
+        pwd = (clave or "").strip()
+        if not pwd:
+            raise ValueError("Clave SBS vacía.")
+        if not pwd.isdigit():
+            raise ValueError("La clave SBS para 'Cerrar Sesiones' debe ser numérica (keypad).")
+
+        # keypad
+        self._open_keypad()
+        self._clear()
+        for ch in pwd:
+            self._press_digit(ch)
+
+        # continuar
+        self.wait.until(EC.element_to_be_clickable(self.BTN_CONTINUAR)).click()
+
+        # outcome (ambos se consideran OK)
+        return self._wait_outcome(timeout=12)
