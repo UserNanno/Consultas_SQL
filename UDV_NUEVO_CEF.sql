@@ -6,7 +6,7 @@ CLAVE = "44445555"  # solo números
 
 Como puedo hacer para que haya un boton donde le abra otra ventana donde le saca por ejemplo un label de SBS y al lado dos input con su label arriba de usuario y contraseña y otro boton al lado de estos input que le permita editar estos campos y se tomen estos para ingresar a SBS en el login. Se podrá?
 
-También tengo un tema que despues que se ejecuta la busqueda del conyuge en SBS la pagina se queda ahi como detenida por cierto tiempo para que pase al flujo de sunat? Con esta pagina nomas pasa esto.
+También tengo un tema que despues que se ejecuta la busqueda del conyuge en SBS antes de hacer logout la pagina se queda ahi como detenida por cierto tiempo para que pase al flujo de sunat? Con esta pagina nomas pasa esto.
 
 
 pages/sbs/riesgos_page.py
@@ -639,3 +639,4 @@ def main():
 
 if __name__ == "__main__":
    main()
+
