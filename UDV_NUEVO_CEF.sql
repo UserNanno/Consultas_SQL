@@ -1,135 +1,72 @@
-from pathlib import Path
-import logging
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException, StaleElementReferenceException
+# ... (resto igual)
 
-from pages.sbs.cerrar_sesiones_page import CerrarSesionesPage  # ✅ NUEVO
-from pages.sbs.login_page import LoginPage
-from pages.sbs.riesgos_page import RiesgosPage
-from pages.copilot_page import CopilotPage
-from services.copilot_service import CopilotService
-from config.settings import URL_LOGIN
+class SunatPage(BasePage):
+    # ... tus locators igual ...
+    RESULT_ITEM = (By.CSS_SELECTOR, "a.aRucs.list-group-item, a.aRucs")
+    NO_RUC_STRONG = (By.XPATH, "//strong[contains(translate(., 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NO REGISTRA')]")
+    PANEL_RESULTADO = (By.CSS_SELECTOR, "div.panel.panel-primary")
 
+    def buscar_por_dni(self, dni: str, timeout_result: int = 8) -> dict:
+        # 1) Por Documento
+        self.wait.until(EC.element_to_be_clickable(self.BTN_POR_DOCUMENTO)).click()
 
-class SbsFlow:
-    def __init__(self, driver, usuario: str, clave: str):
-        self.driver = driver
-        self.usuario = usuario
-        self.clave = clave
+        # 2) Tipo doc = DNI (value="1")
+        sel = Select(self.wait.until(EC.presence_of_element_located(self.CMB_TIPO_DOC)))
+        sel.select_by_value("1")
 
-    def _pre_cerrar_sesion_activa(self):
-        """
-        Paso previo: cerrar sesión activa en el Portal del Supervisado.
-        Outcomes esperados (ambos OK):
-          - "CERRADA": se cerró una sesión activa.
-          - "NO_ACTIVAS": no existían sesiones activas con el usuario ingresado.
-        """
-        logging.info("[SBS] Pre-step: cerrar sesión activa (cerrarSesiones.jsf)")
+        # 3) Número documento
+        inp = self.wait.until(EC.element_to_be_clickable(self.TXT_NUM_DOC))
+        inp.click()
+        inp.clear()
+        inp.send_keys(dni)
 
-        # Limpieza suave de cookies antes del pre-step (no bloqueante)
+        # 4) Buscar
+        self.wait.until(EC.element_to_be_clickable(self.BTN_BUSCAR)).click()
+
+        w = WebDriverWait(self.driver, timeout_result)
+
+        # Caso SIN RUC (rápido)
         try:
-            self.driver.delete_all_cookies()
+            w.until(EC.presence_of_element_located(self.NO_RUC_STRONG))
+            self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
+            return {"status": "SIN_RUC", "dni": dni}
+        except TimeoutException:
+            pass  # seguimos al caso con RUC
+
+        # Caso CON RUC: NO esperes element_to_be_clickable (demora). Usa presencia + click rápido.
+        first = w.until(EC.presence_of_element_located(self.RESULT_ITEM))
+
+        # Scroll para evitar intercepts por header/botoneras
+        try:
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", first)
         except Exception:
             pass
 
-        page = CerrarSesionesPage(self.driver)
-        page.open()
-        outcome = page.cerrar_sesion(self.usuario, self.clave)
+        # Intento de click rápido con fallback JS
+        clicked = False
+        for _ in range(3):
+            try:
+                first.click()
+                clicked = True
+                break
+            except (ElementClickInterceptedException, StaleElementReferenceException):
+                try:
+                    first = self.driver.find_element(*self.RESULT_ITEM)
+                    self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", first)
+                    self.driver.execute_script("arguments[0].click();", first)  # JS click
+                    clicked = True
+                    break
+                except Exception:
+                    continue
 
-        if outcome == "CERRADA":
-            logging.info("[SBS] Pre-step OK: sesión activa cerrada")
-        else:
-            logging.info("[SBS] Pre-step OK: no existían sesiones activas (continuar)")
+        if not clicked:
+            # último recurso: JS click directo
+            self.driver.execute_script("arguments[0].click();", first)
 
-    def run(
-        self,
-        dni: str,
-        captcha_img_path: Path,
-        detallada_img_path: Path,
-        otros_img_path: Path,
-    ) -> dict:
-        # ==========================================================
-        # 0) PRE-STEP: Cerrar sesión activa (siempre al iniciar)
-        # ==========================================================
-        try:
-            self._pre_cerrar_sesion_activa()
-        except Exception as e:
-            # No bloqueante: si falla este pre-step, continuamos al login normal.
-            # Si lo quieres obligatorio, cambia por: raise
-            logging.warning("[SBS] Pre-step cerrar sesión falló, se continúa igual. Detalle=%r", e)
-
-        # ==========================================================
-        # 1) Flujo SBS normal
-        # ==========================================================
-        logging.info("[SBS] Ir a login")
-        self.driver.get(URL_LOGIN)
-
-        login_page = LoginPage(self.driver)
-
-        logging.info("[SBS] Capturar captcha")
-        login_page.capture_image(captcha_img_path)
-
-        # --- Copilot en nueva pestaña (y luego cerrarla) ---
-        original_handle = self.driver.current_window_handle
-        self.driver.switch_to.new_window("tab")
-        copilot = CopilotService(CopilotPage(self.driver))
-
-        logging.info("[SBS] Resolver captcha con Copilot")
-        captcha = copilot.resolve_captcha(captcha_img_path)
-
-        try:
-            self.driver.close()
-        except Exception:
-            pass
-        self.driver.switch_to.window(original_handle)
-
-        logging.info("[SBS] Login (usuario=%s) + ingresar captcha", self.usuario)
-        login_page.fill_form(self.usuario, self.clave, captcha)
-
-        riesgos = RiesgosPage(self.driver)
-
-        logging.info("[SBS] Abrir módulo deuda")
-        riesgos.open_modulo_deuda()
-
-        logging.info("[SBS] Consultar DNI=%s", dni)
-        riesgos.consultar_por_dni(dni)
-
-        logging.info("[SBS] Extraer datos")
-        datos_deudor = riesgos.extract_datos_deudor()
-        posicion = riesgos.extract_posicion_consolidada()
-
-        logging.info("[SBS] Ir a Detallada + screenshot")
-        riesgos.go_detallada()
-        self.driver.save_screenshot(str(detallada_img_path))
-
-        logging.info("[SBS] Ir a Otros Reportes")
-        riesgos.go_otros_reportes()
-
-        logging.info("[SBS] Intentar Carteras Transferidas (no bloqueante)")
-        try:
-            disponible = riesgos.otros_reportes_disponible()
-            logging.info("[SBS] Otros Reportes disponible=%s", disponible)
-
-            loaded = riesgos.click_carteras_transferidas()
-            logging.info("[SBS] Carteras Transferidas loaded=%s", loaded)
-
-            if loaded and riesgos.has_carteras_table():
-                logging.info("[SBS] Expandir rectificaciones (si hay)")
-                riesgos.expand_all_rectificaciones(expected=2)
-
-            logging.info("[SBS] Screenshot contenido (rápido + fallback)")
-            riesgos.screenshot_contenido(str(otros_img_path))
-
-        except Exception as e:
-            logging.exception("[SBS] Error en Otros Reportes/Carteras: %r", e)
-            riesgos.screenshot_contenido(str(otros_img_path))
-
-        logging.info("[SBS] Logout módulo")
-        riesgos.logout_modulo()
-
-        logging.info("[SBS] Logout portal")
-        riesgos.logout_portal()
-
-        logging.info("[SBS] Fin flujo OK")
-        return {
-            "datos_deudor": datos_deudor,
-            "posicion": posicion,
-        }
+        # 6) Esperar panel final (ya estabas esperando este)
+        self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
+        return {"status": "OK", "dni": dni}
