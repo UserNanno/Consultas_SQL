@@ -1,4 +1,3 @@
-# pages/sbs/riesgos_page.py
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
@@ -7,41 +6,28 @@ from pages.base_page import BasePage
 
 
 class RiesgosPage(BasePage):
-    """
-    Página post-login donde existe el link al módulo (criesgos),
-    y luego la pantalla del formulario + resultados (tablas).
-    """
-
     MENU = (By.ID, "Menu")
 
     TAB_DETALLADA = (By.ID, "idOp4")
     TAB_OTROS_REPORTES = (By.ID, "idOp6")
 
-    # Contenedor de contenido (para screenshot de solo tablas)
     CONTENIDO = (By.ID, "Contenido")
 
-    # Bloque "Otros Reportes" (tabla simple con lista)
+    # Otros Reportes
     OTROS_LIST = (By.ID, "OtrosReportes")
     LNK_CARTERAS_TRANSFERIDAS = (
         By.XPATH,
         "//ul[@id='OtrosReportes']//a[normalize-space()='Carteras Transferidas']"
     )
 
-    # NUEVO: tabla "Otros Reportes" y texto cuando no hay info
+    # Tabla contenedora "Otros Reportes"
     TBL_OTROS_REPORTES = (
         By.XPATH,
         "//table[contains(@class,'Crw')][.//span[normalize-space()='Otros Reportes']]"
     )
-    TXT_NO_INFO_OTROS = (
-        By.XPATH,
-        "//table[contains(@class,'Crw')][.//span[normalize-space()='Otros Reportes']]"
-        "//td[contains(normalize-space(.),'No existe información en Otros Reportes')]"
-    )
 
-    # Tabla adicional (solo aparece en algunos DNI, pero en la vista de Carteras Transferidas)
+    # Carteras
     TBL_CARTERAS = (By.CSS_SELECTOR, "table#expand.Crw")
-
-    # Flechas expand (dentro de la tabla #expand)
     ARROWS = (By.CSS_SELECTOR, "table#expand div.arrow[title*='Rectificaciones']")
 
     LINK_MODULO = (
@@ -53,7 +39,6 @@ class RiesgosPage(BasePage):
     INPUT_DOC = (By.CSS_SELECTOR, "input[name='as_doc_iden']")
     BTN_CONSULTAR = (By.ID, "btnConsultar")
 
-    # Tablas de resultado (por su header visible)
     TBL_DATOS_DEUDOR = (
         By.XPATH,
         "//table[contains(@class,'Crw')][.//b[contains(@class,'F') and contains(normalize-space(.),'Datos del Deudor')]]"
@@ -63,7 +48,6 @@ class RiesgosPage(BasePage):
         "//table[contains(@class,'Crw')][.//span[contains(@class,'F') and contains(normalize-space(.),'Posición Consolidada del Deudor')]]"
     )
 
-    # LOGOUT (2 PASOS) ===
     LINK_SALIR_CRIESGOS = (By.CSS_SELECTOR, "a[href*='/criesgos/logout?c_c_producto=00002']")
     BTN_SALIR_PORTAL = (By.CSS_SELECTOR, "a[onclick*=\"goTo('logout')\"]")
 
@@ -91,49 +75,67 @@ class RiesgosPage(BasePage):
     def go_otros_reportes(self):
         self.wait.until(EC.presence_of_element_located(self.MENU))
         self.wait.until(EC.element_to_be_clickable(self.TAB_OTROS_REPORTES)).click()
-        self.wait.until(EC.presence_of_element_located(self.CONTENIDO))
 
-    # ===================== NUEVO =====================
+        # Espera corta: el contenido/tablas aparecen rápido
+        short_wait = WebDriverWait(self.driver, 6)
+        short_wait.until(EC.presence_of_element_located(self.CONTENIDO))
+        short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
+
+    # ===================== CLAVE: no demorar si no hay info =====================
     def otros_reportes_disponible(self) -> bool:
         """
-        True si existe la lista <ul id='OtrosReportes'> (hay opciones).
-        False si aparece el texto 'No existe información en Otros Reportes'
-        o si no aparece nada concluyente (fallback).
+        Determina si existen opciones en "Otros Reportes" SIN usar waits largos.
+        - Si el texto contiene 'No existe información...' => False inmediato
+        - Si existe UL#OtrosReportes => True
         """
         short_wait = WebDriverWait(self.driver, 3)
 
-        # Asegura que la sección de Otros Reportes ya está en DOM
         try:
-            short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
+            tbl = short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
         except TimeoutException:
             return False
 
-        # Caso explícito: no hay información
-        if self.driver.find_elements(*self.TXT_NO_INFO_OTROS):
+        txt = " ".join((tbl.text or "").split()).lower()
+        if "no existe información en otros reportes" in txt:
             return False
 
-        # Caso normal: hay lista con opciones
-        if self.driver.find_elements(*self.OTROS_LIST):
-            return True
-
-        return False
+        # Si hay UL, hay opciones
+        return len(tbl.find_elements(By.ID, "OtrosReportes")) > 0
 
     def click_carteras_transferidas(self) -> bool:
         """
-        No bloqueante:
-        - si no hay info en Otros Reportes => return False inmediato
-        - si hay lista, intenta click y valida carga (wait corto)
+        No bloqueante y SIN waits largos.
+        - Si no hay info => return False inmediato
+        - Si hay lista, intenta click con wait corto y valida carga con wait corto
         """
-        if not self.otros_reportes_disponible():
-            return False
+        short_wait = WebDriverWait(self.driver, 3)
 
-        # aquí sí debería existir el UL
         try:
-            self.wait.until(EC.element_to_be_clickable(self.LNK_CARTERAS_TRANSFERIDAS)).click()
+            tbl = short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
         except TimeoutException:
             return False
 
-        short_wait = WebDriverWait(self.driver, 5)
+        txt = " ".join((tbl.text or "").split()).lower()
+        if "no existe información en otros reportes" in txt:
+            return False
+
+        ul_list = tbl.find_elements(By.ID, "OtrosReportes")
+        if not ul_list:
+            return False
+
+        ul = ul_list[0]
+        links = ul.find_elements(By.XPATH, ".//a[normalize-space()='Carteras Transferidas']")
+        if not links:
+            return False
+
+        # Click (sin self.wait)
+        try:
+            links[0].click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", links[0])
+
+        # Validar carga con wait corto
+        short_wait2 = WebDriverWait(self.driver, 5)
 
         def _loaded(d):
             try:
@@ -147,8 +149,8 @@ class RiesgosPage(BasePage):
                 return False
 
         try:
-            short_wait.until(_loaded)
-            short_wait.until(EC.presence_of_element_located(self.CONTENIDO))
+            short_wait2.until(_loaded)
+            short_wait2.until(EC.presence_of_element_located(self.CONTENIDO))
             return True
         except TimeoutException:
             return False
@@ -161,9 +163,6 @@ class RiesgosPage(BasePage):
             return False
 
     def expand_all_rectificaciones(self, expected: int = 2):
-        """
-        No bloqueante: si no hay flechas, return inmediato.
-        """
         arrows = self.driver.find_elements(*self.ARROWS)
         if not arrows:
             return
@@ -189,19 +188,10 @@ class RiesgosPage(BasePage):
                     WebDriverWait(self.driver, 3).until(_expanded)
                 except Exception:
                     pass
-
             except Exception:
                 continue
 
     def screenshot_contenido(self, out_path):
-        """
-        FIX REAL:
-        - Antes: self.wait (30s) + element.screenshot (a veces pesado/lento/stale)
-        - Ahora:
-          1) intentamos localizar #Contenido con wait corto (4s)
-          2) si no se puede (o está re-renderizando), hacemos fallback a screenshot completo
-          => evita “pausas” largas antes del logout.
-        """
         short_wait = WebDriverWait(self.driver, 4)
         try:
             el = short_wait.until(EC.presence_of_element_located(self.CONTENIDO))
@@ -262,112 +252,3 @@ class RiesgosPage(BasePage):
     def logout_portal(self):
         btn = self.wait.until(EC.element_to_be_clickable(self.BTN_SALIR_PORTAL))
         btn.click()
-
-
-
-
-
-
-
-
-
-
-
-# services/sbs_flow.py
-from pathlib import Path
-import logging
-
-from pages.sbs.login_page import LoginPage
-from pages.sbs.riesgos_page import RiesgosPage
-from pages.copilot_page import CopilotPage
-from services.copilot_service import CopilotService
-from config.settings import URL_LOGIN
-
-
-class SbsFlow:
-    def __init__(self, driver, usuario: str, clave: str):
-        self.driver = driver
-        self.usuario = usuario
-        self.clave = clave
-
-    def run(
-        self,
-        dni: str,
-        captcha_img_path: Path,
-        detallada_img_path: Path,
-        otros_img_path: Path,
-    ) -> dict:
-        logging.info("[SBS] Ir a login")
-        self.driver.get(URL_LOGIN)
-
-        login_page = LoginPage(self.driver)
-
-        logging.info("[SBS] Capturar captcha")
-        login_page.capture_image(captcha_img_path)
-
-        # --- Copilot en nueva pestaña (y luego cerrarla) ---
-        original_handle = self.driver.current_window_handle
-        self.driver.switch_to.new_window("tab")
-        copilot = CopilotService(CopilotPage(self.driver))
-
-        logging.info("[SBS] Resolver captcha con Copilot")
-        captcha = copilot.resolve_captcha(captcha_img_path)
-
-        try:
-            self.driver.close()
-        except Exception:
-            pass
-        self.driver.switch_to.window(original_handle)
-
-        logging.info("[SBS] Login (usuario=%s) + ingresar captcha", self.usuario)
-        login_page.fill_form(self.usuario, self.clave, captcha)
-
-        riesgos = RiesgosPage(self.driver)
-
-        logging.info("[SBS] Abrir módulo deuda")
-        riesgos.open_modulo_deuda()
-
-        logging.info("[SBS] Consultar DNI=%s", dni)
-        riesgos.consultar_por_dni(dni)
-
-        logging.info("[SBS] Extraer datos")
-        datos_deudor = riesgos.extract_datos_deudor()
-        posicion = riesgos.extract_posicion_consolidada()
-
-        logging.info("[SBS] Ir a Detallada + screenshot")
-        riesgos.go_detallada()
-        self.driver.save_screenshot(str(detallada_img_path))
-
-        logging.info("[SBS] Ir a Otros Reportes")
-        riesgos.go_otros_reportes()
-
-        logging.info("[SBS] Intentar Carteras Transferidas (no bloqueante)")
-        try:
-            disponible = riesgos.otros_reportes_disponible()
-            logging.info("[SBS] Otros Reportes disponible=%s", disponible)
-
-            loaded = riesgos.click_carteras_transferidas()
-            logging.info("[SBS] Carteras Transferidas loaded=%s", loaded)
-
-            if loaded and riesgos.has_carteras_table():
-                logging.info("[SBS] Expandir rectificaciones (si hay)")
-                riesgos.expand_all_rectificaciones(expected=2)
-
-            logging.info("[SBS] Screenshot contenido (rápido + fallback)")
-            riesgos.screenshot_contenido(str(otros_img_path))
-
-        except Exception as e:
-            logging.exception("[SBS] Error en Otros Reportes/Carteras: %r", e)
-            riesgos.screenshot_contenido(str(otros_img_path))
-
-        logging.info("[SBS] Logout módulo")
-        riesgos.logout_modulo()
-
-        logging.info("[SBS] Logout portal")
-        riesgos.logout_portal()
-
-        logging.info("[SBS] Fin flujo OK")
-        return {
-            "datos_deudor": datos_deudor,
-            "posicion": posicion,
-        }
