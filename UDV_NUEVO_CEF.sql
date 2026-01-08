@@ -1,4 +1,3 @@
-pages/sunat/sunat_page.py
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
@@ -13,19 +12,23 @@ class SunatPage(BasePage):
     TXT_NUM_DOC = (By.ID, "txtNumeroDocumento")
     BTN_BUSCAR = (By.ID, "btnAceptar")
 
-
+    # Caso con RUC (lista)
     RESULT_ITEM = (By.CSS_SELECTOR, "a.aRucs.list-group-item, a.aRucs")
 
+    # Panel genérico (sirve tanto en OK como SIN_RUC)
     PANEL_RESULTADO = (By.CSS_SELECTOR, "div.panel.panel-primary")
 
-
+    # Caso SIN RUC
     NO_RUC_STRONG = (
         By.XPATH,
         "//strong[contains(translate(., 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NO REGISTRA')]"
     )
 
-
+    # Form que usa la página cuando hay RUC
     FORM_SELEC = (By.NAME, "selecXNroRuc")
+
+    # Body (para screenshot completo)
+    BODY = (By.TAG_NAME, "body")
 
     def open(self):
         self.driver.get(URL_SUNAT)
@@ -33,22 +36,38 @@ class SunatPage(BasePage):
 
     def _submit_ruc_form(self, ruc: str):
         """
-        Hace lo mismo que el JS de la página:
-          document.selecXNroRuc.nroRuc.value = ruc;
-          document.selecXNroRuc.submit();
-        Mucho más estable que click en <a>.
+        Replica:
+          document.selecXNroRuc.nroRuc.value = ruc
+          document.selecXNroRuc.submit()
         """
-        # asegura que el form exista
         self.wait.until(EC.presence_of_element_located(self.FORM_SELEC))
-
         js = """
         const ruc = arguments[0];
-        if (!document.selecXNroRuc) { return "NO_FORM"; }
+        if (!document.selecXNroRuc) return "NO_FORM";
         document.selecXNroRuc.nroRuc.value = ruc;
         document.selecXNroRuc.submit();
         return "OK";
         """
         return self.driver.execute_script(js, ruc)
+
+    def _wait_result_outcome(self, timeout: int = 10) -> str:
+        """
+        Espera el primero que ocurra (race):
+          - aparece RESULT_ITEM -> "HAS_RUC"
+          - aparece NO_RUC_STRONG -> "NO_RUC"
+        """
+        w = WebDriverWait(self.driver, timeout)
+        try:
+            w.until(lambda d: (
+                len(d.find_elements(*self.RESULT_ITEM)) > 0
+                or len(d.find_elements(*self.NO_RUC_STRONG)) > 0
+            ))
+        except TimeoutException:
+            raise TimeoutException("SUNAT: no apareció ni lista de RUCs ni mensaje 'NO REGISTRA'.")
+
+        if len(self.driver.find_elements(*self.NO_RUC_STRONG)) > 0:
+            return "NO_RUC"
+        return "HAS_RUC"
 
     def buscar_por_dni(self, dni: str, timeout_result: int = 10) -> dict:
         """
@@ -71,33 +90,40 @@ class SunatPage(BasePage):
         # 4) Buscar
         self.wait.until(EC.element_to_be_clickable(self.BTN_BUSCAR)).click()
 
-        # 5) Esperar outcome: SIN_RUC o lista con RUC
-        w = WebDriverWait(self.driver, timeout_result)
-        try:
-            w.until(EC.presence_of_element_located(self.NO_RUC_STRONG))
+        # 5) Esperar outcome inmediato (sin esperar 10s por NO_RUC cuando sí hay RUC)
+        outcome = self._wait_result_outcome(timeout=timeout_result)
+
+        if outcome == "NO_RUC":
             self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
             return {"status": "SIN_RUC", "dni": dni, "ruc": None}
+
+        # 6) Caso con RUC: tomar primer item + enviar form (más estable que click)
+        w = WebDriverWait(self.driver, timeout_result)
+        first = w.until(EC.presence_of_element_located(self.RESULT_ITEM))
+        ruc = first.get_attribute("data-ruc") or None
+
+        # Guardamos el form actual para esperar navegación real (más confiable que staleness del <a>)
+        form_el = self.wait.until(EC.presence_of_element_located(self.FORM_SELEC))
+
+        if ruc:
+            self._submit_ruc_form(ruc)
+        else:
+            # fallback extremo: click JS
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", first)
+            self.driver.execute_script("arguments[0].click();", first)
+
+        # 7) Esperar que la página cambie (submit). Aquí lo robusto es:
+        #    - el form selecXNroRuc desaparece o queda stale
+        try:
+            w.until(EC.staleness_of(form_el))
         except TimeoutException:
-            # Caso OK: obtener primer RUC
-            first = w.until(EC.presence_of_element_located(self.RESULT_ITEM))
+            # fallback: si no queda stale, al menos que ya no exista el form
+            w.until(lambda d: len(d.find_elements(*self.FORM_SELEC)) == 0)
 
-            # a veces está, pero click no funciona; tomamos el data-ruc y enviamos form
-            ruc = first.get_attribute("data-ruc")
-            if not ruc:
-                # fallback: intenta click normal si no hay data-ruc por algún motivo
-                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", first)
-                self.driver.execute_script("arguments[0].click();", first)
-            else:
-                self._submit_ruc_form(ruc)
+        # 8) Panel final (siempre hay panel en las vistas)
+        self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
 
-            # 6) Esperar que cambie a la página de detalle del RUC.
-            # En la práctica, aquí cambia el contenido y/o URL. Esperamos que desaparezca la lista
-            # o que cambie el panel a uno distinto (si tienes un selector mejor del detalle, úsalo).
-            w.until(EC.staleness_of(first))
-
-            # y esperamos el panel final
-            self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
-            return {"status": "OK", "dni": dni, "ruc": ruc}
+        return {"status": "OK", "dni": dni, "ruc": ruc}
 
     def screenshot_panel_resultado(self, out_path):
         panel = self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
@@ -105,35 +131,6 @@ class SunatPage(BasePage):
         panel.screenshot(str(out_path))
 
     def screenshot_body(self, out_path):
-        body = self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        body = self.wait.until(EC.presence_of_element_located(self.BODY))
         self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", body)
         body.screenshot(str(out_path))
-
-
-
-
-
-
-
-services/sunat_flow.py
-from pathlib import Path
-from pages.sunat.sunat_page import SunatPage
-
-class SunatFlow:
-    def __init__(self, driver):
-        self.page = SunatPage(driver)
-
-    def run(self, dni: str, out_img_path: Path) -> dict:
-        """
-        Retorna dict:
-          {"status": "OK"|"SIN_RUC", "dni": "..."}
-        """
-        self.page.open()
-        result = self.page.buscar_por_dni(dni)
-
-        if result["status"] == "SIN_RUC":
-            self.page.screenshot_body(out_img_path)
-        else:
-            self.page.screenshot_panel_resultado(out_img_path)
-
-        return result
