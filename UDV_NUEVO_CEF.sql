@@ -1,16 +1,43 @@
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
-from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException, StaleElementReferenceException
-# ... (resto igual)
+from selenium.common.exceptions import TimeoutException
+from pages.base_page import BasePage
+from config.settings import URL_SUNAT
 
 class SunatPage(BasePage):
-    # ... tus locators igual ...
+    BTN_POR_DOCUMENTO = (By.ID, "btnPorDocumento")
+    CMB_TIPO_DOC = (By.ID, "cmbTipoDoc")
+    TXT_NUM_DOC = (By.ID, "txtNumeroDocumento")
+    BTN_BUSCAR = (By.ID, "btnAceptar")
+
+    # Caso con RUC
     RESULT_ITEM = (By.CSS_SELECTOR, "a.aRucs.list-group-item, a.aRucs")
-    NO_RUC_STRONG = (By.XPATH, "//strong[contains(translate(., 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NO REGISTRA')]")
+
+    # Panel genérico
     PANEL_RESULTADO = (By.CSS_SELECTOR, "div.panel.panel-primary")
 
+    # Caso SIN RUC (texto)
+    NO_RUC_STRONG = (
+        By.XPATH,
+        "//strong[contains(translate(., 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NO REGISTRA')]"
+    )
+
+    # Para screenshot full page visible (body)
+    BODY = (By.TAG_NAME, "body")
+
+    def open(self):
+        self.driver.get(URL_SUNAT)
+        self.wait.until(EC.presence_of_element_located(self.BTN_POR_DOCUMENTO))
+
     def buscar_por_dni(self, dni: str, timeout_result: int = 8) -> dict:
+        """
+        Retorna dict:
+          {
+            "status": "OK" | "SIN_RUC",
+            "dni": dni
+          }
+        """
         # 1) Por Documento
         self.wait.until(EC.element_to_be_clickable(self.BTN_POR_DOCUMENTO)).click()
 
@@ -27,46 +54,32 @@ class SunatPage(BasePage):
         # 4) Buscar
         self.wait.until(EC.element_to_be_clickable(self.BTN_BUSCAR)).click()
 
+        # 5) Esperar resultado: SIN_RUC (strong NO REGISTRA) o link aRucs
         w = WebDriverWait(self.driver, timeout_result)
 
-        # Caso SIN RUC (rápido)
+        # Intentamos SIN_RUC primero (suele aparecer rápido)
         try:
             w.until(EC.presence_of_element_located(self.NO_RUC_STRONG))
+            # Asegura que el panel ya esté
             self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
             return {"status": "SIN_RUC", "dni": dni}
         except TimeoutException:
-            pass  # seguimos al caso con RUC
+            # No apareció NO REGISTRA -> flujo normal con RUC
+            first = w.until(EC.element_to_be_clickable(self.RESULT_ITEM))
+            first.click()
+            self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
+            return {"status": "OK", "dni": dni}
 
-        # Caso CON RUC: NO esperes element_to_be_clickable (demora). Usa presencia + click rápido.
-        first = w.until(EC.presence_of_element_located(self.RESULT_ITEM))
+    def screenshot_panel_resultado(self, out_path):
+        panel = self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", panel)
+        panel.screenshot(str(out_path))
 
-        # Scroll para evitar intercepts por header/botoneras
-        try:
-            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", first)
-        except Exception:
-            pass
-
-        # Intento de click rápido con fallback JS
-        clicked = False
-        for _ in range(3):
-            try:
-                first.click()
-                clicked = True
-                break
-            except (ElementClickInterceptedException, StaleElementReferenceException):
-                try:
-                    first = self.driver.find_element(*self.RESULT_ITEM)
-                    self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", first)
-                    self.driver.execute_script("arguments[0].click();", first)  # JS click
-                    clicked = True
-                    break
-                except Exception:
-                    continue
-
-        if not clicked:
-            # último recurso: JS click directo
-            self.driver.execute_script("arguments[0].click();", first)
-
-        # 6) Esperar panel final (ya estabas esperando este)
-        self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
-        return {"status": "OK", "dni": dni}
+    def screenshot_body(self, out_path):
+        """
+        Captura el <body> visible completo (lo que entra en el viewport).
+        Para full-page real (altura total), lo ideal es CDP.
+        """
+        body = self.wait.until(EC.presence_of_element_located(self.BODY))
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", body)
+        body.screenshot(str(out_path))
