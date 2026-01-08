@@ -1,143 +1,123 @@
 from __future__ import annotations
-import tkinter as tk
-from tkinter import ttk
+import threading
+from typing import Callable, Optional
 
-from domain.models import ConsultaRequest, PersonDocument, DocumentType
-from config.product_catalog import list_productos, list_desproductos
+from domain.models import ConsultaRequest, ConsultaResult, PersonDocument, DocumentType
+from config.product_catalog import PRODUCT_CATALOG, list_desproductos
+from main import run_app
 
 
-class DocumentForm(ttk.Frame):
-    def __init__(self, master):
-        super().__init__(master)
+def _validate_document(doc: PersonDocument) -> Optional[str]:
+    n = (doc.doc_number or "").strip()
+    if doc.doc_type == DocumentType.DNI:
+        if not n.isdigit() or len(n) != 8:
+            return "DNI inválido (debe ser numérico de 8 dígitos)."
+        return None
+    if doc.doc_type == DocumentType.RUC:
+        if not n.isdigit() or len(n) != 11:
+            return "RUC inválido (debe ser numérico de 11 dígitos)."
+        return None
+    if doc.doc_type == DocumentType.CE:
+        if len(n) < 6:
+            return "CE inválido."
+        return None
+    if doc.doc_type == DocumentType.PASSPORT:
+        if len(n) < 6:
+            return "Pasaporte inválido."
+        return None
+    return "Tipo de documento no soportado."
 
-        self.var_titular = tk.StringVar()
-        self.var_use_spouse = tk.BooleanVar(value=False)
-        self.var_spouse = tk.StringVar()
 
-        # ✅ NUEVOS CAMPOS OBLIGATORIOS
-        self.var_numoportunidad = tk.StringVar()
-        self.var_producto = tk.StringVar()
-        self.var_desproducto = tk.StringVar()
+class ConsultaController:
+    def __init__(
+        self,
+        on_log: Callable[[str], None],
+        on_status: Callable[[str], None],
+        on_busy: Callable[[bool], None],
+        on_success: Callable[[ConsultaResult], None],
+        on_error: Callable[[Exception], None],
+    ):
+        self.on_log = on_log
+        self.on_status = on_status
+        self.on_busy = on_busy
+        self.on_success = on_success
+        self.on_error = on_error
 
-        self._build()
+    def validate(self, req: ConsultaRequest) -> Optional[str]:
+        # ---- documentos ----
+        err = _validate_document(req.titular)
+        if err:
+            return err
 
-    def _build(self):
-        # ------------------------
-        # Documentos
-        # ------------------------
-        ttk.Label(self, text="Documento Titular (DNI - 8 dígitos):").grid(row=0, column=0, sticky="w")
-        self.ent_tit = ttk.Entry(self, textvariable=self.var_titular, width=24)
-        self.ent_tit.grid(row=0, column=1, sticky="w", padx=(8, 0))
+        if req.incluir_conyuge:
+            if req.conyuge is None:
+                return "Marcaste 'Incluir cónyuge' pero no enviaste documento del cónyuge."
+            err2 = _validate_document(req.conyuge)
+            if err2:
+                return f"Cónyuge: {err2}"
 
-        self.chk = ttk.Checkbutton(
-            self,
-            text="Incluir cónyuge",
-            variable=self.var_use_spouse,
-            command=self._toggle_spouse
-        )
-        self.chk.grid(row=1, column=0, sticky="w", columnspan=2, pady=(6, 0))
+        # ---- ✅ obligatorios de oportunidad ----
+        if not (req.numoportunidad or "").strip():
+            return "NUMOPORTUNIDAD es obligatorio."
+        if not (req.producto or "").strip():
+            return "PRODUCTO es obligatorio."
+        if not (req.desproducto or "").strip():
+            return "DESPRODUCTO es obligatorio."
 
-        ttk.Label(self, text="Documento Cónyuge (DNI - 8 dígitos):").grid(row=2, column=0, sticky="w", pady=(6, 0))
-        self.ent_sp = ttk.Entry(self, textvariable=self.var_spouse, width=24, state="disabled")
-        self.ent_sp.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+        # ---- ✅ coherencia con catálogo ----
+        producto = req.producto.strip()
+        desproducto = req.desproducto.strip()
 
-        # ------------------------
-        # ✅ Datos de oportunidad (obligatorio)
-        # ------------------------
-        ttk.Separator(self, orient="horizontal").grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 10))
+        if producto not in PRODUCT_CATALOG:
+            return f"PRODUCTO inválido: '{producto}'."
+        if desproducto not in list_desproductos(producto):
+            return f"DESPRODUCTO inválido: '{desproducto}' para PRODUCTO '{producto}'."
 
-        ttk.Label(self, text="NUMOPORTUNIDAD (obligatorio):").grid(row=4, column=0, sticky="w")
-        self.ent_numop = ttk.Entry(self, textvariable=self.var_numoportunidad, width=24)
-        self.ent_numop.grid(row=4, column=1, sticky="w", padx=(8, 0))
+        return None
 
-        ttk.Label(self, text="PRODUCTO (obligatorio):").grid(row=5, column=0, sticky="w", pady=(6, 0))
-        self.cmb_producto = ttk.Combobox(
-            self,
-            textvariable=self.var_producto,
-            values=list_productos(),
-            state="readonly",
-            width=22
-        )
-        self.cmb_producto.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
-        self.cmb_producto.bind("<<ComboboxSelected>>", self._on_producto_changed)
+    def run(self, req: ConsultaRequest):
+        err = self.validate(req)
+        if err:
+            self.on_error(ValueError(err))
+            return
 
-        ttk.Label(self, text="DESPRODUCTO (obligatorio):").grid(row=6, column=0, sticky="w", pady=(6, 0))
-        self.cmb_desproducto = ttk.Combobox(
-            self,
-            textvariable=self.var_desproducto,
-            values=[],
-            state="readonly",
-            width=22
-        )
-        self.cmb_desproducto.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
-
-        # defaults (para que combobox tenga selección inicial)
-        productos = list_productos()
-        if productos:
-            self.var_producto.set(productos[0])
-            self._refresh_desproductos()
-
-        self.columnconfigure(1, weight=1)
-
-    def _toggle_spouse(self):
-        if self.var_use_spouse.get():
-            self.ent_sp.configure(state="normal")
-        else:
-            self.ent_sp.configure(state="disabled")
-            self.var_spouse.set("")
-
-    def _on_producto_changed(self, event=None):
-        self._refresh_desproductos()
-
-    def _refresh_desproductos(self):
-        producto = (self.var_producto.get() or "").strip()
-        options = list_desproductos(producto)
-        self.cmb_desproducto["values"] = options
-        self.var_desproducto.set(options[0] if options else "")
-
-    def get_request(self) -> ConsultaRequest:
-        # -------- documentos --------
-        titular_doc = PersonDocument(DocumentType.DNI, (self.var_titular.get() or "").strip())
-        incluir = bool(self.var_use_spouse.get())
-
-        cony = None
-        if incluir:
-            cony = PersonDocument(DocumentType.DNI, (self.var_spouse.get() or "").strip())
-
-        # -------- ✅ obligatorios --------
-        numop = (self.var_numoportunidad.get() or "").strip()
-        producto = (self.var_producto.get() or "").strip()
-        desproducto = (self.var_desproducto.get() or "").strip()
-
-        # Validación rápida (UI-level) para cortar antes
-        if not numop:
-            raise ValueError("NUMOPORTUNIDAD es obligatorio.")
-        if not producto:
-            raise ValueError("PRODUCTO es obligatorio.")
-        if not desproducto:
-            raise ValueError("DESPRODUCTO es obligatorio.")
-
-        return ConsultaRequest(
-            titular=titular_doc,
-            incluir_conyuge=incluir,
-            conyuge=cony,
-            numoportunidad=numop,
-            producto=producto,
-            desproducto=desproducto,
+        self.on_busy(True)
+        self.on_status("ejecutando...")
+        self.on_log(
+            f"Iniciando: Titular={req.titular.doc_type.value} {req.titular.doc_number} | "
+            f"Conyuge={'SI' if req.incluir_conyuge else 'NO'} | "
+            f"NUMOPORTUNIDAD={req.numoportunidad} | PRODUCTO={req.producto} | DESPRODUCTO={req.desproducto}"
         )
 
-    def set_busy(self, busy: bool):
-        state = "disabled" if busy else "normal"
+        t = threading.Thread(target=self._worker, args=(req,), daemon=True)
+        t.start()
 
-        self.ent_tit.configure(state=state)
-        self.chk.configure(state=state)
+    def _worker(self, req: ConsultaRequest):
+        try:
+            if req.titular.doc_type != DocumentType.DNI:
+                raise ValueError("Por ahora solo está implementado DNI en el motor.")
 
-        if self.var_use_spouse.get():
-            self.ent_sp.configure(state=state)
-        else:
-            self.ent_sp.configure(state="disabled")
+            dni_titular = req.titular.doc_number.strip()
 
-        # ✅ nuevos campos
-        self.ent_numop.configure(state=state)
-        self.cmb_producto.configure(state="disabled" if busy else "readonly")
-        self.cmb_desproducto.configure(state="disabled" if busy else "readonly")
+            dni_conyuge = None
+            if req.incluir_conyuge:
+                if req.conyuge is None:
+                    raise ValueError("No llegó documento del cónyuge.")
+                if req.conyuge.doc_type != DocumentType.DNI:
+                    raise ValueError("Por ahora el cónyuge solo está implementado para DNI.")
+                dni_conyuge = req.conyuge.doc_number.strip()
+
+            out_xlsm, results_dir = run_app(
+                dni_titular=dni_titular,
+                dni_conyuge=dni_conyuge,
+                numoportunidad=req.numoportunidad,
+                producto=req.producto,
+                desproducto=req.desproducto,
+            )
+
+            self.on_success(ConsultaResult(out_xlsm=out_xlsm, results_dir=results_dir))
+
+        except Exception as e:
+            self.on_error(e)
+        finally:
+            self.on_busy(False)
