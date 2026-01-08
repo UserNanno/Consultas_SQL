@@ -1,3 +1,76 @@
+pages/sunat/sunat_page.py
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select
+from pages.base_page import BasePage
+from config.settings import URL_SUNAT
+
+class SunatPage(BasePage):
+   BTN_POR_DOCUMENTO = (By.ID, "btnPorDocumento")
+   CMB_TIPO_DOC = (By.ID, "cmbTipoDoc")
+   TXT_NUM_DOC = (By.ID, "txtNumeroDocumento")
+   # ✅ Botón Buscar real
+   BTN_BUSCAR = (By.ID, "btnAceptar")
+   RESULT_ITEM = (By.CSS_SELECTOR, "a.aRucs.list-group-item, a.aRucs")
+   PANEL_RESULTADO = (By.CSS_SELECTOR, "div.panel.panel-primary")
+   def open(self):
+       self.driver.get(URL_SUNAT)
+       self.wait.until(EC.presence_of_element_located(self.BTN_POR_DOCUMENTO))
+   def buscar_por_dni(self, dni: str):
+       # 1) Por Documento
+       self.wait.until(EC.element_to_be_clickable(self.BTN_POR_DOCUMENTO)).click()
+       # 2) Tipo doc = DNI (value="1")
+       sel = Select(self.wait.until(EC.presence_of_element_located(self.CMB_TIPO_DOC)))
+       sel.select_by_value("1")
+       # 3) Número documento
+       inp = self.wait.until(EC.element_to_be_clickable(self.TXT_NUM_DOC))
+       inp.click()
+       inp.clear()
+       inp.send_keys(dni)
+       # 4) Buscar
+       self.wait.until(EC.element_to_be_clickable(self.BTN_BUSCAR)).click()
+       # 5) Click primer RUC encontrado
+       first = self.wait.until(EC.element_to_be_clickable(self.RESULT_ITEM))
+       first.click()
+       # 6) Esperar panel final
+       self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
+   def screenshot_panel_resultado(self, out_path):
+       panel = self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
+       self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", panel)
+       panel.screenshot(str(out_path))
+
+
+
+
+
+
+
+
+
+
+
+
+
+services/sunat_service.py
+from pathlib import Path
+from pages.sunat.sunat_page import SunatPage
+
+class SunatFlow:
+   def __init__(self, driver):
+       self.page = SunatPage(driver)
+   def run(self, dni: str, out_img_path: Path):
+       self.page.open()
+       self.page.buscar_por_dni(dni)
+       self.page.screenshot_panel_resultado(out_img_path)
+
+
+
+
+
+
+
+
+main.py
 from __future__ import annotations
 from pathlib import Path
 import os
