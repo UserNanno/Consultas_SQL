@@ -1,45 +1,90 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from config.analyst_store import load_matanalista, save_matanalista
+from controllers.consulta_controller import ConsultaController
+from ui.widgets.document_form import DocumentForm
+from ui.widgets.log_panel import LogPanel
+from ui.widgets.status_bar import StatusBar
+from ui.sbs_credentials_window import SbsCredentialsWindow
+from ui.matanalista_window import MatanalistaWindow  # ✅ NUEVO
 
 
-class MatanalistaWindow(tk.Toplevel):
-    def __init__(self, master):
-        super().__init__(master)
-        self.title("Matrícula Analista")
+class MainWindow(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Prisma Selenium - Consulta")
+        self.geometry("580x390")
         self.resizable(False, False)
+        self._build()
+        self.controller = ConsultaController(
+            on_log=self._ui_log,
+            on_status=self._ui_status,
+            on_busy=self._ui_busy,
+            on_success=self._ui_success,
+            on_error=self._ui_error,
+        )
 
-        self.var_mat = tk.StringVar(value=load_matanalista(""))
+    def _build(self):
+        root = ttk.Frame(self, padding=12)
+        root.pack(fill="both", expand=True)
 
-        frm = ttk.Frame(self, padding=12)
-        frm.pack(fill="both", expand=True)
+        self.form = DocumentForm(root)
+        self.form.pack(fill="x")
 
-        ttk.Label(frm, text="MATANALISTA (obligatorio):").grid(row=0, column=0, sticky="w")
-        ent = ttk.Entry(frm, textvariable=self.var_mat, width=26)
-        ent.grid(row=1, column=0, sticky="w", pady=(6, 0))
-        ent.focus_set()
+        actions = ttk.Frame(root)
+        actions.pack(fill="x", pady=(10, 0))
 
-        btns = ttk.Frame(frm)
-        btns.grid(row=2, column=0, sticky="w", pady=(12, 0))
+        self.btn_run = ttk.Button(actions, text="Ejecutar", command=self._on_run)
+        self.btn_run.pack(side="left")
 
-        ttk.Button(btns, text="Guardar", command=self._save).pack(side="left")
-        ttk.Button(btns, text="Cerrar", command=self.destroy).pack(side="left", padx=(8, 0))
+        self.btn_sbs = ttk.Button(actions, text="Credenciales SBS", command=self._on_sbs_credentials)
+        self.btn_sbs.pack(side="left", padx=(8, 0))
 
-        self.bind("<Return>", lambda e: self._save())
+        # ✅ NUEVO BOTÓN MATANALISTA
+        self.btn_mat = ttk.Button(actions, text="MATANALISTA", command=self._on_matanalista)
+        self.btn_mat.pack(side="left", padx=(8, 0))
 
-        # modal
-        self.transient(master)
-        self.grab_set()
+        self.status = StatusBar(actions)
+        self.status.pack(side="left", padx=(12, 0))
 
-    def _save(self):
-        mat = (self.var_mat.get() or "").strip()
-        if not mat:
-            messagebox.showerror("Validación", "MATANALISTA es obligatorio.")
-            return
+        self.log_panel = LogPanel(root)
+        self.log_panel.pack(fill="both", expand=True, pady=(10, 0))
 
-        # Normalizamos (opcional): uppercase sin espacios
-        mat = mat.upper().replace(" ", "")
-        save_matanalista(mat)
-        messagebox.showinfo("OK", "MATANALISTA guardado.")
-        self.destroy()
+    def _on_sbs_credentials(self):
+        SbsCredentialsWindow(self)
+
+    def _on_matanalista(self):
+        MatanalistaWindow(self)
+
+    def _on_run(self):
+        req = self.form.get_request()
+        self.controller.run(req)
+
+    # --- callbacks thread-safe ---
+    def _ui_log(self, msg: str):
+        self.after(0, lambda: self.log_panel.append(msg))
+
+    def _ui_status(self, text: str):
+        self.after(0, lambda: self.status.set(text))
+
+    def _ui_busy(self, busy: bool):
+        def _apply():
+            self.btn_run.configure(state="disabled" if busy else "normal")
+            self.btn_sbs.configure(state="disabled" if busy else "normal")
+            self.btn_mat.configure(state="disabled" if busy else "normal")
+            self.form.set_busy(busy)
+        self.after(0, _apply)
+
+    def _ui_success(self, res):
+        def _apply():
+            self.status.set("finalizado")
+            self.log_panel.append(f"OK: {res.out_xlsm}")
+            self.log_panel.append(f"Evidencias: {res.results_dir}")
+        self.after(0, _apply)
+
+    def _ui_error(self, e: Exception):
+        def _apply():
+            self.status.set("error")
+            self.log_panel.append(f"ERROR: {repr(e)}")
+            messagebox.showerror("Error", str(e))
+        self.after(0, _apply)
