@@ -1,85 +1,155 @@
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import Select, WebDriverWait
-from selenium.common.exceptions import TimeoutException
-from pages.base_page import BasePage
-from config.settings import URL_SUNAT
+<body>
+  
+  	
+	<div class="container">
+		<div class="header hidden" id="divHeader">
+			<div class="col-md-10 col-md-offset-1">
+	        	<img src="/a/imagenes/logo_2015.png" class="imgLogo">
+			</div>
+	    </div>
+	    <div class="row">	
+	        <div class="col-md-10 col-md-offset-1">
+	        	<div>
+	        		<h1>Consulta RUC</h1>
+	        	</div>
+	        	<div class="divBotoneraArriba text-center">				 
+	        		 
+					<button type="button" class="btn btn-danger btnNuevaConsulta">Volver</button>
+	        	</div> 
+			    <div class="panel panel-primary">
+				  <div class="panel-heading">Relación de contribuyentes</div>
+				  <div class="list-group">
+					  
+					  
+						
+						
+						
+									<a href="#" class="list-group-item clearfix aRucs" data-ruc="10788016005">
+									    <h4 class="list-group-item-heading">RUC: 10788016005</h4>
+									    <h4 class="list-group-item-heading">CANECILLAS CONTRERAS JUAN MARIANO</h4>
+									    <p class="list-group-item-text">Ubicación: LIMA</p>
+									    
+									    
+									    <p class="list-group-item-text">Estado: <strong><span class="text-success">ACTIVO</span></strong></p>
+									    
+									    <span class="glyphicon glyphicon-chevron-right pull-right" aria-hidden="true"></span>
+									    
+									  </a>
+						
+						
+					
+					  
+					</div>
+				  
+				   
+				  
+				  
+				  <div class="panel-footer text-center">
+				  	<small>Fecha consulta: 08/01/2026 16:09</small>
+				  </div><!-- fin footer del panel -->
+				</div><!--fin panel-->
+				
+				
+				<div class="text-center divBotonera">	        		 
+	        		  <a href="FrameCriterioBusquedaWeb.jsp" class="hidden" id="aNuevaConsulta">Volver</a>					 
+					<button type="button" class="btn btn-danger btnNuevaConsulta">Volver</button>
+	        	</div>
+				
+	         </div><!--fin col-->
+	    </div><!--fin row-->
+		<footer class="footer text-center">
+			<div class="col-md-10 col-md-offset-1">
+				<p><small>© 1997 - 2026 SUNAT Derechos Reservados</small></p>
+			</div>
+		</footer>
+	</div><!--fin container--> 
+	
+	
+	
+  
+	<form action="/cl-ti-itmrconsruc/jcrS00Alias" method="post" name="selecXNroRuc">
+		<input type="hidden" name="accion" value="consPorRuc">
+		<input type="hidden" name="actReturn" value="1">
+		<input type="hidden" name="nroRuc" value="">
+		<input type="hidden" name="numRnd" value="1413385332">			
+		<input type="hidden" name="modo" value="1">
+	</form>	    
+	
 
-class SunatPage(BasePage):
-    BTN_POR_DOCUMENTO = (By.ID, "btnPorDocumento")
-    CMB_TIPO_DOC = (By.ID, "cmbTipoDoc")
-    TXT_NUM_DOC = (By.ID, "txtNumeroDocumento")
-    BTN_BUSCAR = (By.ID, "btnAceptar")
 
-    # Caso con RUC
-    RESULT_ITEM = (By.CSS_SELECTOR, "a.aRucs.list-group-item, a.aRucs")
+    <script src="/a/js/libs/jquery/1.11.1/jquery.min.js"></script>
+    <script src="/a/js/libs/bootstrap/3.3.1/js/bootstrap.min.js"></script>
+    <script>
+    	$( document ).ready(function() {
+    		$.ajaxSetup({ scriptCharset: "utf-8" , contentType: "application/json; charset=utf-8"});
+    	    jQuery.support.cors = true;
 
-    # Panel genérico
-    PANEL_RESULTADO = (By.CSS_SELECTOR, "div.panel.panel-primary")
+    	    iniciaVariables();
+    	    iniciaBotones();   
+    	});
 
-    # Caso SIN RUC (texto)
-    NO_RUC_STRONG = (
-        By.XPATH,
-        "//strong[contains(translate(., 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NO REGISTRA')]"
-    )
 
-    # Para screenshot full page visible (body)
-    BODY = (By.TAG_NAME, "body")
+    	
+    	 
+    	 
+    	/*Funciones usadas por la aplicación*/
+    	function iniciaBotones(){
+    	    //resetea estado inicial del formulario
+    	   
 
-    def open(self):
-        self.driver.get(URL_SUNAT)
-        self.wait.until(EC.presence_of_element_located(self.BTN_POR_DOCUMENTO))
+    	    aRucs.bind('click',function(event){
+				var dataRuc=$(this).attr("data-ruc");
+				sendNroRuc(dataRuc);
+				
+				
+				event.preventDefault();
+                event.stopImmediatePropagation();
+                return false;
+    	    });    
 
-    def buscar_por_dni(self, dni: str, timeout_result: int = 8) -> dict:
-        """
-        Retorna dict:
-          {
-            "status": "OK" | "SIN_RUC",
-            "dni": dni
-          }
-        """
-        # 1) Por Documento
-        self.wait.until(EC.element_to_be_clickable(self.BTN_POR_DOCUMENTO)).click()
+    	    $(".btnNuevaConsulta").bind('click',function(event){
+    	    	regresa();        		
+        		
+        		event.preventDefault();
+        		event.stopImmediatePropagation();
+        		return false;
+        	});  
+    	    
+    	}
+    	
+    	function regresa(){
+    		var href = $("#aNuevaConsulta").attr('href');
+    		window.location.href = href;
+    	}
+    	function irHome(){
+    		regresa();
+    	}
+    	
+    	function sendNroRuc(cc){
+    	    document.selecXNroRuc.nroRuc.value = cc;
+    		document.selecXNroRuc.submit();
+    	}
+    	
 
-        # 2) Tipo doc = DNI (value="1")
-        sel = Select(self.wait.until(EC.presence_of_element_located(self.CMB_TIPO_DOC)))
-        sel.select_by_value("1")
+    	/*Variables del app*/
 
-        # 3) Número documento
-        inp = self.wait.until(EC.element_to_be_clickable(self.TXT_NUM_DOC))
-        inp.click()
-        inp.clear()
-        inp.send_keys(dni)
+    	
+    	/*Declarar variables*/
+    	var aRucs=null;
+    	
 
-        # 4) Buscar
-        self.wait.until(EC.element_to_be_clickable(self.BTN_BUSCAR)).click()
-
-        # 5) Esperar resultado: SIN_RUC (strong NO REGISTRA) o link aRucs
-        w = WebDriverWait(self.driver, timeout_result)
-
-        # Intentamos SIN_RUC primero (suele aparecer rápido)
-        try:
-            w.until(EC.presence_of_element_located(self.NO_RUC_STRONG))
-            # Asegura que el panel ya esté
-            self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
-            return {"status": "SIN_RUC", "dni": dni}
-        except TimeoutException:
-            # No apareció NO REGISTRA -> flujo normal con RUC
-            first = w.until(EC.element_to_be_clickable(self.RESULT_ITEM))
-            first.click()
-            self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
-            return {"status": "OK", "dni": dni}
-
-    def screenshot_panel_resultado(self, out_path):
-        panel = self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
-        self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", panel)
-        panel.screenshot(str(out_path))
-
-    def screenshot_body(self, out_path):
-        """
-        Captura el <body> visible completo (lo que entra en el viewport).
-        Para full-page real (altura total), lo ideal es CDP.
-        """
-        body = self.wait.until(EC.presence_of_element_located(self.BODY))
-        self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", body)
-        body.screenshot(str(out_path))
+    	/*Iniciar variables*/
+    	function iniciaVariables(){
+    		aRucs=$(".aRucs");
+    	}
+    	
+    	
+    	
+    	
+    	
+	  
+	</script>
+	
+    <script src="/a/js/apps/workspace/ws.js"></script>
+  
+</body>
