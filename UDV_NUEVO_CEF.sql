@@ -11,24 +11,32 @@ class SunatPage(BasePage):
     TXT_NUM_DOC = (By.ID, "txtNumeroDocumento")
     BTN_BUSCAR = (By.ID, "btnAceptar")
 
-    # Resultado positivo (lista de contribuyentes)
+    # Caso con RUC
     RESULT_ITEM = (By.CSS_SELECTOR, "a.aRucs.list-group-item, a.aRucs")
 
-    # Panel genérico (para screenshot/validación)
+    # Panel genérico
     PANEL_RESULTADO = (By.CSS_SELECTOR, "div.panel.panel-primary")
 
-    # ✅ Resultado negativo (no registra RUC)
-    NO_RUC_STRONG = (By.XPATH, "//strong[contains(translate(., 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NO REGISTRA')]")
+    # Caso SIN RUC (texto)
+    NO_RUC_STRONG = (
+        By.XPATH,
+        "//strong[contains(translate(., 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NO REGISTRA')]"
+    )
+
+    # Para screenshot full page visible (body)
+    BODY = (By.TAG_NAME, "body")
 
     def open(self):
         self.driver.get(URL_SUNAT)
         self.wait.until(EC.presence_of_element_located(self.BTN_POR_DOCUMENTO))
 
-    def buscar_por_dni(self, dni: str, timeout_result: int = 8) -> bool:
+    def buscar_por_dni(self, dni: str, timeout_result: int = 8) -> dict:
         """
-        Retorna:
-          True  -> encontró RUC y navegó (hizo click)
-          False -> DNI sin RUC (no navega)
+        Retorna dict:
+          {
+            "status": "OK" | "SIN_RUC",
+            "dni": dni
+          }
         """
         # 1) Por Documento
         self.wait.until(EC.element_to_be_clickable(self.BTN_POR_DOCUMENTO)).click()
@@ -46,31 +54,35 @@ class SunatPage(BasePage):
         # 4) Buscar
         self.wait.until(EC.element_to_be_clickable(self.BTN_BUSCAR)).click()
 
-        # 5) Esperar resultado: O hay RUC (link) O sale mensaje NO REGISTRA
+        # 5) Esperar resultado: SIN_RUC (strong NO REGISTRA) o link aRucs
         w = WebDriverWait(self.driver, timeout_result)
 
+        # Intentamos SIN_RUC primero (suele aparecer rápido)
         try:
-            # Primero intentamos detectar el caso SIN RUC (si aparece rápido, cortamos)
             w.until(EC.presence_of_element_located(self.NO_RUC_STRONG))
-
-            # Si llegó aquí, es SIN RUC
+            # Asegura que el panel ya esté
             self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
-            return False
-
+            return {"status": "SIN_RUC", "dni": dni}
         except TimeoutException:
-            # No apareció el "NO REGISTRA" -> asumimos que sí hay RUC
+            # No apareció NO REGISTRA -> flujo normal con RUC
             first = w.until(EC.element_to_be_clickable(self.RESULT_ITEM))
             first.click()
-
-            # 6) Esperar panel final
             self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
-            return True
+            return {"status": "OK", "dni": dni}
 
     def screenshot_panel_resultado(self, out_path):
         panel = self.wait.until(EC.presence_of_element_located(self.PANEL_RESULTADO))
         self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", panel)
         panel.screenshot(str(out_path))
 
+    def screenshot_body(self, out_path):
+        """
+        Captura el <body> visible completo (lo que entra en el viewport).
+        Para full-page real (altura total), lo ideal es CDP.
+        """
+        body = self.wait.until(EC.presence_of_element_located(self.BODY))
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", body)
+        body.screenshot(str(out_path))
 
 
 
@@ -93,28 +105,20 @@ class SunatFlow:
 
     def run(self, dni: str, out_img_path: Path) -> dict:
         """
-        Retorna dict con estado del flujo SUNAT.
-        {
-          "status": "OK" | "SIN_RUC",
-          "dni": "...",
-          "has_ruc": bool
-        }
+        Retorna dict:
+          {"status": "OK"|"SIN_RUC", "dni": "..."}
         """
         self.page.open()
-        has_ruc = self.page.buscar_por_dni(dni)
+        result = self.page.buscar_por_dni(dni)
 
-        if not has_ruc:
-            # Si quieres igual evidencia del mensaje "NO REGISTRA", puedes dejar screenshot aquí.
-            # Si NO quieres screenshot, comenta esta línea.
+        if result["status"] == "SIN_RUC":
+            # ✅ Evidencia completa (body)
+            self.page.screenshot_body(out_img_path)
+        else:
+            # ✅ Evidencia del panel final normal
             self.page.screenshot_panel_resultado(out_img_path)
-            return {"status": "SIN_RUC", "dni": dni, "has_ruc": False}
 
-        # Caso OK
-        self.page.screenshot_panel_resultado(out_img_path)
-        return {"status": "OK", "dni": dni, "has_ruc": True}
-
-
-
+        return result
 
 
 
@@ -127,18 +131,3 @@ class SunatFlow:
 
 sunat_result = SunatFlow(driver).run(dni=dni_titular, out_img_path=sunat_img_path)
 logging.info("SUNAT result=%s", sunat_result)
-
-
-
-
-
-
-
-
-
-if sunat_result.get("status") == "OK":
-    writer.add_image_to_range("SUNAT", sunat_img_path, "C5", "O51")
-else:
-    # Si prefieres dejar evidencia del "NO REGISTRA", entonces SÍ insertes la imagen igual.
-    # Aquí lo dejo como NO insertar (porque pediste no avanzar como si fuera OK).
-    logging.warning("SUNAT: DNI sin RUC, no se inserta panel en XLSM.")
