@@ -7,6 +7,7 @@ import logging
 from typing import Optional, Tuple
 
 from config.settings import *  # URLs, credenciales, etc.
+from config.credentials_store import load_sbs_credentials  # <-- NUEVO
 from infrastructure.edge_debug import EdgeDebugLauncher
 from infrastructure.selenium_driver import SeleniumDriverFactory
 from services.sbs_flow import SbsFlow
@@ -62,6 +63,10 @@ def run_app(dni_titular: str, dni_conyuge: Optional[str] = None) -> Tuple[Path, 
     logging.info("DNI_TITULAR=%s | DNI_CONYUGE=%s", dni_titular, dni_conyuge or "")
     logging.info("APP_DIR=%s", app_dir)
 
+    # ====== CREDENCIALES SBS (runtime desde storage) ======
+    sbs_user, sbs_pass = load_sbs_credentials(USUARIO, CLAVE)
+    logging.info("SBS user runtime=%s", sbs_user)  # no loguear password
+
     launcher = EdgeDebugLauncher()
     launcher.ensure_running()
     driver = SeleniumDriverFactory.create()
@@ -109,7 +114,7 @@ def run_app(dni_titular: str, dni_conyuge: Optional[str] = None) -> Tuple[Path, 
         # 1) SBS TITULAR
         # ==========================================================
         logging.info("== FLUJO SBS (TITULAR) INICIO ==")
-        _ = SbsFlow(driver, USUARIO, CLAVE).run(
+        _ = SbsFlow(driver, sbs_user, sbs_pass).run(
             dni=dni_titular,
             captcha_img_path=captcha_img_path,
             detallada_img_path=detallada_img_path,
@@ -122,7 +127,7 @@ def run_app(dni_titular: str, dni_conyuge: Optional[str] = None) -> Tuple[Path, 
         # ==========================================================
         if dni_conyuge:
             logging.info("== FLUJO SBS (CONYUGE) INICIO ==")
-            _ = SbsFlow(driver, USUARIO, CLAVE).run(
+            _ = SbsFlow(driver, sbs_user, sbs_pass).run(
                 dni=dni_conyuge,
                 captcha_img_path=captcha_img_cony_path,
                 detallada_img_path=detallada_img_cony_path,
