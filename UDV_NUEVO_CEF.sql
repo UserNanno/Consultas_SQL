@@ -1,372 +1,197 @@
-Asi quedo mi config/product_catalog.py
-# PRODUCTO -> lista de DESPRODUCTO
-PRODUCT_CATALOG = {
-    "CREDITO EFECTIVO": [
-        "LD/RE",
-        "COMPRA DEUDA",
-    ],
-    "TARJETA DE CREDITO": [
-        "TARJETA NUEVA",
-
-    ],
-}
-
-def list_productos() -> list[str]:
-    return sorted(PRODUCT_CATALOG.keys())
-
-def list_desproductos(producto: str) -> list[str]:
-    return PRODUCT_CATALOG.get(producto, [])
-
-
-Y asi esta mi ui/main_window.py
-import tkinter as tk
-from tkinter import ttk, messagebox
-
-from controllers.consulta_controller import ConsultaController
-from ui.widgets.document_form import DocumentForm
-from ui.widgets.log_panel import LogPanel
-from ui.widgets.status_bar import StatusBar
-from ui.sbs_credentials_window import SbsCredentialsWindow  # <-- NUEVO
-
-
-class MainWindow(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("Prisma Selenium - Consulta")
-        self.geometry("580x390")
-        self.resizable(False, False)
-        self._build()
-        self.controller = ConsultaController(
-            on_log=self._ui_log,
-            on_status=self._ui_status,
-            on_busy=self._ui_busy,
-            on_success=self._ui_success,
-            on_error=self._ui_error,
-        )
-
-    def _build(self):
-        root = ttk.Frame(self, padding=12)
-        root.pack(fill="both", expand=True)
-
-        self.form = DocumentForm(root)
-        self.form.pack(fill="x")
-
-        actions = ttk.Frame(root)
-        actions.pack(fill="x", pady=(10, 0))
-
-        self.btn_run = ttk.Button(actions, text="Ejecutar", command=self._on_run)
-        self.btn_run.pack(side="left")
-
-        # ✅ NUEVO BOTÓN
-        self.btn_sbs = ttk.Button(actions, text="Credenciales SBS", command=self._on_sbs_credentials)
-        self.btn_sbs.pack(side="left", padx=(8, 0))
-
-        self.status = StatusBar(actions)
-        self.status.pack(side="left", padx=(12, 0))
-
-        self.log_panel = LogPanel(root)
-        self.log_panel.pack(fill="both", expand=True, pady=(10, 0))
-
-    def _on_sbs_credentials(self):
-        # abre la ventana modal
-        SbsCredentialsWindow(self)
-
-    def _on_run(self):
-        req = self.form.get_request()
-        self.controller.run(req)
-
-    # --- callbacks thread-safe ---
-    def _ui_log(self, msg: str):
-        self.after(0, lambda: self.log_panel.append(msg))
-
-    def _ui_status(self, text: str):
-        self.after(0, lambda: self.status.set(text))
-
-    def _ui_busy(self, busy: bool):
-        def _apply():
-            self.btn_run.configure(state="disabled" if busy else "normal")
-            self.btn_sbs.configure(state="disabled" if busy else "normal")  # <-- opcional, evita editar en ejecución
-            self.form.set_busy(busy)
-        self.after(0, _apply)
-
-    def _ui_success(self, res):
-        def _apply():
-            self.status.set("finalizado")
-            self.log_panel.append(f"OK: {res.out_xlsm}")
-            self.log_panel.append(f"Evidencias: {res.results_dir}")
-        self.after(0, _apply)
-
-    def _ui_error(self, e: Exception):
-        def _apply():
-            self.status.set("error")
-            self.log_panel.append(f"ERROR: {repr(e)}")
-            messagebox.showerror("Error", str(e))
-        self.after(0, _apply)
-
-
-
-
-
-y asi está mi main.py
+Este es mi ui/widgets/document_form.py
 from __future__ import annotations
+import tkinter as tk
+from tkinter import ttk
+from domain.models import ConsultaRequest, PersonDocument, DocumentType
+
+class DocumentForm(ttk.Frame):
+   def __init__(self, master):
+       super().__init__(master)
+       self.var_titular = tk.StringVar()
+       self.var_use_spouse = tk.BooleanVar(value=False)
+       self.var_spouse = tk.StringVar()
+       self._build()
+   def _build(self):
+       ttk.Label(self, text="Documento Titular (DNI - 8 dígitos):").grid(row=0, column=0, sticky="w")
+       self.ent_tit = ttk.Entry(self, textvariable=self.var_titular, width=24)
+       self.ent_tit.grid(row=0, column=1, sticky="w", padx=(8, 0))
+       self.chk = ttk.Checkbutton(
+           self,
+           text="Incluir cónyuge",
+           variable=self.var_use_spouse,
+           command=self._toggle_spouse
+       )
+       self.chk.grid(row=1, column=0, sticky="w", columnspan=2, pady=(6, 0))
+       ttk.Label(self, text="Documento Cónyuge (DNI - 8 dígitos):").grid(row=2, column=0, sticky="w", pady=(6, 0))
+       self.ent_sp = ttk.Entry(self, textvariable=self.var_spouse, width=24, state="disabled")
+       self.ent_sp.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+       self.columnconfigure(1, weight=1)
+   def _toggle_spouse(self):
+       if self.var_use_spouse.get():
+           self.ent_sp.configure(state="normal")
+       else:
+           self.ent_sp.configure(state="disabled")
+           self.var_spouse.set("")
+   def get_request(self) -> ConsultaRequest:
+       titular_doc = PersonDocument(DocumentType.DNI, (self.var_titular.get() or "").strip())
+       incluir = bool(self.var_use_spouse.get())
+       cony = None
+       if incluir:
+           cony = PersonDocument(DocumentType.DNI, (self.var_spouse.get() or "").strip())
+       return ConsultaRequest(
+           titular=titular_doc,
+           incluir_conyuge=incluir,
+           conyuge=cony
+       )
+   def set_busy(self, busy: bool):
+       state = "disabled" if busy else "normal"
+       self.ent_tit.configure(state=state)
+       self.chk.configure(state=state)
+       if self.var_use_spouse.get():
+           self.ent_sp.configure(state=state)
+       else:
+           self.ent_sp.configure(state="disabled")
+
+
+
+
+
+
+
+Y este es mi controllers/consulta_controller.py
+from __future__ import annotations
+import threading
+from typing import Callable, Optional
+from domain.models import ConsultaRequest, ConsultaResult, PersonDocument, DocumentType
+from main import run_app
+
+def _validate_document(doc: PersonDocument) -> Optional[str]:
+   n = (doc.doc_number or "").strip()
+   if doc.doc_type == DocumentType.DNI:
+       if not n.isdigit() or len(n) != 8:
+           return "DNI inválido (debe ser numérico de 8 dígitos)."
+       return None
+   if doc.doc_type == DocumentType.RUC:
+       if not n.isdigit() or len(n) != 11:
+           return "RUC inválido (debe ser numérico de 11 dígitos)."
+       return None
+   if doc.doc_type == DocumentType.CE:
+       # regla mínima por ahora (ajustable)
+       if len(n) < 6:
+           return "CE inválido."
+       return None
+   if doc.doc_type == DocumentType.PASSPORT:
+       # regla mínima por ahora (ajustable)
+       if len(n) < 6:
+           return "Pasaporte inválido."
+       return None
+   return "Tipo de documento no soportado."
+
+class ConsultaController:
+   def __init__(
+       self,
+       on_log: Callable[[str], None],
+       on_status: Callable[[str], None],
+       on_busy: Callable[[bool], None],
+       on_success: Callable[[ConsultaResult], None],
+       on_error: Callable[[Exception], None],
+   ):
+       self.on_log = on_log
+       self.on_status = on_status
+       self.on_busy = on_busy
+       self.on_success = on_success
+       self.on_error = on_error
+   def validate(self, req: ConsultaRequest) -> Optional[str]:
+       err = _validate_document(req.titular)
+       if err:
+           return err
+       if req.incluir_conyuge:
+           if req.conyuge is None:
+               return "Marcaste 'Incluir cónyuge' pero no enviaste documento del cónyuge."
+           err2 = _validate_document(req.conyuge)
+           if err2:
+               return f"Cónyuge: {err2}"
+       return None
+   def run(self, req: ConsultaRequest):
+       err = self.validate(req)
+       if err:
+           self.on_error(ValueError(err))
+           return
+       self.on_busy(True)
+       self.on_status("ejecutando...")
+       self.on_log(
+           f"Iniciando: Titular={req.titular.doc_type.value} {req.titular.doc_number} | "
+           f"Conyuge={'SI' if req.incluir_conyuge else 'NO'}"
+       )
+       t = threading.Thread(target=self._worker, args=(req,), daemon=True)
+       t.start()
+   def _worker(self, req: ConsultaRequest):
+       try:
+           # Si mañana soportas más tipos, aquí haces el switch y llamas a la función correcta.
+           if req.titular.doc_type != DocumentType.DNI:
+               raise ValueError("Por ahora solo está implementado DNI en el motor.")
+           dni_titular = req.titular.doc_number.strip()
+           dni_conyuge = None
+           if req.incluir_conyuge:
+               if req.conyuge is None:
+                   raise ValueError("No llegó documento del cónyuge.")
+               if req.conyuge.doc_type != DocumentType.DNI:
+                   raise ValueError("Por ahora el cónyuge solo está implementado para DNI.")
+               dni_conyuge = req.conyuge.doc_number.strip()
+           out_xlsm, results_dir = run_app(dni_titular, dni_conyuge)
+           self.on_success(ConsultaResult(out_xlsm=out_xlsm, results_dir=results_dir))
+       except Exception as e:
+           self.on_error(e)
+       finally:
+           self.on_busy(False)
+
+
+
+services/rbm_flow.py
 from pathlib import Path
-import os
-import sys
-import tempfile
 import logging
-from typing import Optional, Tuple
 
-from config.settings import *  # URLs, etc. (SIN usuario/clave SBS)
-from config.credentials_store import load_sbs_credentials
-from infrastructure.edge_debug import EdgeDebugLauncher
-from infrastructure.selenium_driver import SeleniumDriverFactory
-from services.sbs_flow import SbsFlow
-from services.sunat_flow import SunatFlow
-from services.rbm_flow import RbmFlow
-from services.xlsm_session_writer import XlsmSessionWriter
-from utils.logging_utils import setup_logging
-from utils.decorators import log_exceptions
+from pages.rbm.rbm_page import RbmPage
+from selenium.common.exceptions import TimeoutException, WebDriverException
 
 
-def _get_app_dir() -> Path:
-    """Carpeta del exe (PyInstaller) o del proyecto (script)."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+class RbmFlow:
+    def __init__(self, driver):
+        self.page = RbmPage(driver)
+        self.driver = driver  # para screenshot en error
 
-
-def _pick_results_dir(app_dir: Path) -> Path:
-    """
-    Intenta crear ./results al lado del exe/script.
-    Si falla por permisos, usa %LOCALAPPDATA%/PrismaProject/results (o TEMP).
-    """
-    primary = app_dir / "results"
-    try:
-        primary.mkdir(parents=True, exist_ok=True)
-        test_file = primary / ".write_test"
-        test_file.write_text("ok", encoding="utf-8")
-        test_file.unlink(missing_ok=True)
-        return primary
-    except Exception:
-        base = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()))
-        fallback = base / "PrismaProject" / "results"
-        fallback.mkdir(parents=True, exist_ok=True)
-        return fallback
-
-
-@log_exceptions
-def run_app(dni_titular: str, dni_conyuge: Optional[str] = None) -> Tuple[Path, Path]:
-    app_dir = _get_app_dir()
-    setup_logging(app_dir)
-
-    logging.info("=== INICIO EJECUCION ===")
-    logging.info("DNI_TITULAR=%s | DNI_CONYUGE=%s", dni_titular, dni_conyuge or "")
-    logging.info("APP_DIR=%s", app_dir)
-
-    # ====== CREDENCIALES SBS DESDE GUI (LOCALAPPDATA) ======
-    sbs_user, sbs_pass = load_sbs_credentials("", "")
-    if not sbs_user or not sbs_pass:
-        raise ValueError("No hay credenciales SBS configuradas. Ve a 'Credenciales SBS' y guárdalas.")
-    logging.info("SBS user runtime=%s", sbs_user)
-
-    launcher = EdgeDebugLauncher()
-    launcher.ensure_running()
-    driver = SeleniumDriverFactory.create()
-
-    try:
-        macro_path = app_dir / "Macro.xlsm"
-        if not macro_path.exists():
-            raise FileNotFoundError(f"No se encontró Macro.xlsm junto al ejecutable: {macro_path}")
-
-        results_dir = _pick_results_dir(app_dir)
-
-        dni_conyuge = (dni_conyuge or "").strip() or None
-
-        out_xlsm = (results_dir / "Macro_out.xlsm").with_name(f"Macro_out_{dni_titular}.xlsm")
-
-        captcha_img_path = results_dir / "captura.png"
-        detallada_img_path = results_dir / "detallada.png"
-        otros_img_path = results_dir / "otros_reportes.png"
-
-        captcha_img_cony_path = results_dir / "sbs_captura_conyuge.png"
-        detallada_img_cony_path = results_dir / "sbs_detallada_conyuge.png"
-        otros_img_cony_path = results_dir / "sbs_otros_reportes_conyuge.png"
-
-        sunat_img_path = results_dir / "sunat_panel.png"
-
-        rbm_consumos_img_path = results_dir / "rbm_consumos.png"
-        rbm_cem_img_path = results_dir / "rbm_cem.png"
-
-        rbm_consumos_cony_path = results_dir / "rbm_consumos_conyuge.png"
-        rbm_cem_cony_path = results_dir / "rbm_cem_conyuge.png"
-
-        logging.info("RESULTS_DIR=%s", results_dir)
-        logging.info("OUTPUT_XLSM=%s", out_xlsm)
-
-        # ==========================================================
-        # 1) SBS TITULAR
-        # ==========================================================
-        logging.info("== FLUJO SBS (TITULAR) INICIO ==")
-        _ = SbsFlow(driver, sbs_user, sbs_pass).run(
-            dni=dni_titular,
-            captcha_img_path=captcha_img_path,
-            detallada_img_path=detallada_img_path,
-            otros_img_path=otros_img_path,
-        )
-        logging.info("== FLUJO SBS (TITULAR) FIN ==")
-
-        # ==========================================================
-        # 1.1) SBS CONYUGE (opcional)
-        # ==========================================================
-        if dni_conyuge:
-            logging.info("== FLUJO SBS (CONYUGE) INICIO ==")
-            _ = SbsFlow(driver, sbs_user, sbs_pass).run(
-                dni=dni_conyuge,
-                captcha_img_path=captcha_img_cony_path,
-                detallada_img_path=detallada_img_cony_path,
-                otros_img_path=otros_img_cony_path,
-            )
-            logging.info("== FLUJO SBS (CONYUGE) FIN ==")
-
-        # ==========================================================
-        # 2) SUNAT TITULAR
-        # ==========================================================
-        logging.info("== FLUJO SUNAT (TITULAR) INICIO ==")
+    def run(self, dni: str, consumos_img_path: Path, cem_img_path: Path):
         try:
-            driver.delete_all_cookies()
-        except Exception:
-            pass
-        SunatFlow(driver).run(dni=dni_titular, out_img_path=sunat_img_path)
-        logging.info("== FLUJO SUNAT (TITULAR) FIN ==")
+            self.page.open()
 
-        # ==========================================================
-        # 3) RBM TITULAR
-        # ==========================================================
-        logging.info("== FLUJO RBM (TITULAR) INICIO ==")
-        rbm_titular = RbmFlow(driver).run(
-            dni=dni_titular,
-            consumos_img_path=rbm_consumos_img_path,
-            cem_img_path=rbm_cem_img_path,
-        )
-        rbm_inicio_tit = rbm_titular.get("inicio", {}) if isinstance(rbm_titular, dict) else {}
-        rbm_cem_tit = rbm_titular.get("cem", {}) if isinstance(rbm_titular, dict) else {}
-        logging.info("RBM titular inicio=%s", rbm_inicio_tit)
-        logging.info("RBM titular cem=%s", rbm_cem_tit)
-        logging.info("== FLUJO RBM (TITULAR) FIN ==")
+            self.page.consultar_dni(dni)
+            inicio_fields = self.page.extract_inicio_fields()
+            self.page.screenshot_panel_body_cdp(consumos_img_path)
 
-        # ==========================================================
-        # 4) RBM CONYUGE (opcional, en nueva pestaña)
-        # ==========================================================
-        rbm_inicio_cony = {}
-        rbm_cem_cony = {}
-        if dni_conyuge:
-            logging.info("== FLUJO RBM (CONYUGE) INICIO ==")
-            original_handle_rbm = driver.current_window_handle
-            rbm_conyuge = {}
+            self.page.go_cem_tab()
+            cem_3cols = self.page.extract_cem_3cols()
+            self.page.screenshot_panel_body_cdp(cem_img_path)
+
+            out = {"ok": True, "inicio": inicio_fields, "cem": cem_3cols}
+            logging.info("RBM flow return: %s", out)
+            return out
+
+        except (TimeoutException, WebDriverException) as e:
+            logging.warning("[RBM] No disponible (soft-fail). dni=%s | err=%s", dni, repr(e))
+            logging.warning("[RBM] url=%s | title=%s", self.driver.current_url, self.driver.title)
+
+            # Evidencia (siempre útil)
             try:
-                driver.switch_to.new_window("tab")
-                rbm_conyuge = RbmFlow(driver).run(
-                    dni=dni_conyuge,
-                    consumos_img_path=rbm_consumos_cony_path,
-                    cem_img_path=rbm_cem_cony_path,
-                )
-            finally:
-                try:
-                    driver.close()
-                except Exception:
-                    pass
-                try:
-                    driver.switch_to.window(original_handle_rbm)
-                except Exception:
-                    pass
+                err_path = Path(consumos_img_path).with_name("rbm_error.png")
+                self.driver.save_screenshot(str(err_path))
+                logging.info("[RBM] Screenshot error guardado: %s", err_path)
+            except Exception:
+                pass
 
-            rbm_inicio_cony = rbm_conyuge.get("inicio", {}) if isinstance(rbm_conyuge, dict) else {}
-            rbm_cem_cony = rbm_conyuge.get("cem", {}) if isinstance(rbm_conyuge, dict) else {}
-            logging.info("RBM conyuge inicio=%s", rbm_inicio_cony)
-            logging.info("RBM conyuge cem=%s", rbm_cem_cony)
-            logging.info("== FLUJO RBM (CONYUGE) FIN ==")
-
-        # ==========================================================
-        # 5) Escribir todo en XLSM
-        # ==========================================================
-        logging.info("== ESCRITURA XLSM INICIO ==")
-
-        cem_row_map = [
-            ("hipotecario", 26),
-            ("cef", 27),
-            ("vehicular", 28),
-            ("pyme", 29),
-            ("comercial", 30),
-            ("deuda_indirecta", 31),
-            ("tarjeta", 32),
-            ("linea_no_utilizada", 33),
-        ]
-
-        with XlsmSessionWriter(macro_path) as writer:
-            writer.write_cell("Inicio", "C11", rbm_inicio_tit.get("segmento"))
-            writer.write_cell("Inicio", "C12", rbm_inicio_tit.get("segmento_riesgo"))
-            writer.write_cell("Inicio", "C13", rbm_inicio_tit.get("pdh"))
-            writer.write_cell("Inicio", "C15", rbm_inicio_tit.get("score_rcc"))
-
-            for key, row in cem_row_map:
-                item = rbm_cem_tit.get(key, {}) or {}
-                writer.write_cell("Inicio", f"C{row}", item.get("cuota_bcp", 0))
-                writer.write_cell("Inicio", f"D{row}", item.get("cuota_sbs", 0))
-                writer.write_cell("Inicio", f"E{row}", item.get("saldo_sbs", 0))
-
-            if dni_conyuge:
-                writer.write_cell("Inicio", "D11", rbm_inicio_cony.get("segmento"))
-                writer.write_cell("Inicio", "D12", rbm_inicio_cony.get("segmento_riesgo"))
-                writer.write_cell("Inicio", "D15", rbm_inicio_cony.get("score_rcc"))
-
-                for key, row in cem_row_map:
-                    item = rbm_cem_cony.get(key, {}) or {}
-                    writer.write_cell("Inicio", f"G{row}", item.get("cuota_bcp", 0))
-                    writer.write_cell("Inicio", f"H{row}", item.get("cuota_sbs", 0))
-                    writer.write_cell("Inicio", f"I{row}", item.get("saldo_sbs", 0))
-
-            writer.add_image_to_range("SBS", detallada_img_path, "C64", "Z110")
-            writer.add_image_to_range("SBS", otros_img_path, "C5", "Z50")
-            if dni_conyuge:
-                writer.add_image_to_range("SBS", detallada_img_cony_path, "AI64", "AY110")
-                writer.add_image_to_range("SBS", otros_img_cony_path, "AI5", "AY50")
-
-            writer.add_image_to_range("SUNAT", sunat_img_path, "C5", "O51")
-
-            writer.add_image_to_range("RBM", rbm_consumos_img_path, "C5", "Z50")
-            writer.add_image_to_range("RBM", rbm_cem_img_path, "C64", "Z106")
-            if dni_conyuge:
-                writer.add_image_to_range("RBM", rbm_consumos_cony_path, "AI5", "AY50")
-                writer.add_image_to_range("RBM", rbm_cem_cony_path, "AI64", "AY106")
-
-            writer.save(out_xlsm)
-
-        logging.info("== ESCRITURA XLSM FIN ==")
-        logging.info("XLSM final generado: %s", out_xlsm.resolve())
-        logging.info("Evidencias guardadas en: %s", results_dir.resolve())
-        print(f"XLSM final generado: {out_xlsm.resolve()}")
-        print(f"Evidencias guardadas en: {results_dir.resolve()}")
-
-        return out_xlsm, results_dir
-
-    finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
-        try:
-            launcher.close()
-        except Exception:
-            pass
-
-        logging.info("=== FIN EJECUCION ===")
-        logging.shutdown()
-
-
-@log_exceptions
-def main():
-    run_app(DNI_CONSULTA, DNI_CONYUGE_CONSULTA)
-
-
-if __name__ == "__main__":
-    main()
+            return {
+                "ok": False,
+                "error": "RBM_NO_DISPONIBLE",
+                "error_detail": repr(e),
+                "inicio": {},
+                "cem": {},
+            }
