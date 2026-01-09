@@ -1,59 +1,95 @@
-def extract_scores_por_producto(self, producto: str, desproducto: str | None = None) -> dict:
-    """
-    Reglas explícitas por catálogo:
+import tkinter as tk
+from tkinter import ttk, messagebox
 
-    CREDITO EFECTIVO:
-        - LIBRE DISPONIBILIDAD                  -> Venta CEF LD/RE
-        - COMPRA DE DEUDA                      -> Venta CEF CdD
-        - LD + CONSOLIDACION                   -> Venta CEF LD/RE
-        - LD + COMPRA DE DUDA Y/O CONSOLIDACION -> Venta CEF CdD
-        - C83 siempre: Portafolio CEF (Score BHV)
+from controllers.consulta_controller import ConsultaController
+from ui.widgets.document_form import DocumentForm
+from ui.widgets.log_panel import LogPanel
+from ui.widgets.status_bar import StatusBar
+from ui.sbs_credentials_window import SbsCredentialsWindow
+from ui.matanalista_window import MatanalistaWindow
 
-    TARJETA DE CREDITO:
-        - TARJETA NUEVA -> Venta TC Nueva
-        - C83 = None
-    """
+class MainWindow(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Prisma Selenium - Consulta")
+        self.geometry("580x390")
+        self.resizable(False, False)
+        self._build()
+        self.controller = ConsultaController(
+            on_log=self._ui_log,
+            on_status=self._ui_status,
+            on_busy=self._ui_busy,
+            on_success=self._ui_success,
+            on_error=self._ui_error,
+        )
 
-    self.wait_not_loading(timeout=40)
+    def _build(self):
+        root = ttk.Frame(self, padding=12)
+        root.pack(fill="both", expand=True)
 
-    p = (producto or "").strip().upper()
-    d = " ".join((desproducto or "").strip().upper().split())  # normaliza espacios
+        self.form = DocumentForm(root)
+        self.form.pack(fill="x")
 
-    out = {"inicio_c14": None, "inicio_c83": None}
+        actions = ttk.Frame(root)
+        actions.pack(fill="x", pady=(10, 0))
 
-    if p == "CREDITO EFECTIVO":
+        self.btn_run = ttk.Button(actions, text="Ejecutar", command=self._on_run)
+        self.btn_run.pack(side="left")
 
-        if d == "LIBRE DISPONIBILIDAD":
-            out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
+        self.btn_sbs = ttk.Button(actions, text="Credenciales SBS", command=self._on_sbs_credentials)
+        self.btn_sbs.pack(side="left", padx=(8, 0))
 
-        elif d == "COMPRA DE DEUDA":
-            out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
+        self.btn_mat = ttk.Button(actions, text="Matricula", command=self._on_matanalista)
+        self.btn_mat.pack(side="left", padx=(8, 0))
 
-        elif d == "LD + CONSOLIDACION":
-            out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
+        self.status = StatusBar(actions)
+        self.status.pack(side="left", padx=(12, 0))
 
-        elif d == "LD + COMPRA DE DUDA Y/O CONSOLIDACION":
-            out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
+        self.log_panel = LogPanel(root)
+        self.log_panel.pack(fill="both", expand=True, pady=(10, 0))
 
-        else:
-            logging.warning("RBM DESPRODUCTO no reconocido para CREDITO EFECTIVO: %s", d)
-            out["inicio_c14"] = None
+    def _on_sbs_credentials(self):
+        SbsCredentialsWindow(self)
 
-        # Siempre para Crédito Efectivo
-        out["inicio_c83"] = self.extract_badge_by_label_contains("Portafolio CEF (Score BHV)")
+    def _on_matanalista(self):
+        MatanalistaWindow(self)
 
-    elif p == "TARJETA DE CREDITO":
+    def _on_run(self):
+        req = self.form.get_request()
+        self.controller.run(req)
 
-        if d == "TARJETA NUEVA":
-            out["inicio_c14"] = self.extract_badge_by_label_contains("Venta TC Nueva")
-        else:
-            logging.warning("RBM DESPRODUCTO no reconocido para TARJETA DE CREDITO: %s", d)
-            out["inicio_c14"] = None
+    # --- callbacks thread-safe ---
+    def _ui_log(self, msg: str):
+        self.after(0, lambda: self.log_panel.append(msg))
 
-        out["inicio_c83"] = None
+    def _ui_status(self, text: str):
+        self.after(0, lambda: self.status.set(text))
 
-    else:
-        logging.warning("RBM PRODUCTO no reconocido: %s", p)
+    def _ui_busy(self, busy: bool):
+        def _apply():
+            self.btn_run.configure(state="disabled" if busy else "normal")
+            self.btn_sbs.configure(state="disabled" if busy else "normal")
+            self.btn_mat.configure(state="disabled" if busy else "normal")
+            self.form.set_busy(busy)
+        self.after(0, _apply)
 
-    logging.info("RBM extract_scores_por_producto: %s", out)
-    return out
+    def _ui_success(self, res):
+        def _apply():
+            self.status.set("finalizado")
+            self.log_panel.append(f"OK: {res.out_xlsm}")
+            self.log_panel.append(f"Evidencias: {res.results_dir}")
+
+            messagebox.showinfo(
+                "Proceso finalizado",
+                "El proceso terminó correctamente\n\n"
+                f"Archivo XLSM:\n{res.out_xlsm}\n\n"
+                f"Evidencias:\n{res.results_dir}"
+            )
+        self.after(0, _apply)
+
+    def _ui_error(self, e: Exception):
+        def _apply():
+            self.status.set("error")
+            self.log_panel.append(f"ERROR: {repr(e)}")
+            messagebox.showerror("Error", str(e))
+        self.after(0, _apply)
