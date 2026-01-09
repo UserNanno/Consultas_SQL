@@ -1,3 +1,16 @@
+He agregado mas valores a DESPRODUCTO y deberiamos modificar la logica en rbm_page.py no? 
+
+Esta es la nueva logica de los DESPRODUCTO cuando el PRODUCTO es CREDITO EFECTIVO
+    
+LIBRE DISPONIBILIDAD -> Venta CEF LD/RE
+COMPRA DE DEUDA      -> Venta CEF CdD   
+LD + CONSOLIDACION   -> Venta CEF LD/RE
+LD + COMPRA DE DUDA Y/O CONSOLIDACION -> Venta CEF CdD
+
+En pocas palabras, basta que haya compra de deuda en alguna variante y se toma compra de deuda
+
+Que deberia cambiar en mi script actual de mis archivos? 
+
 config/product_catalog.py
 # PRODUCTO -> lista de DESPRODUCTO
 PRODUCT_CATALOG = {
@@ -431,3 +444,4 @@ class RbmPage(BasePage):
 
         logging.info("RBM extract_scores_por_producto: %s", out)
         return out
+
