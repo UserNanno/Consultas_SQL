@@ -1,202 +1,59 @@
-from pathlib import Path
-import logging
+    def extract_scores_por_producto(self, producto: str, desproducto: str | None = None) -> dict:
+        """
+        Reglas explícitas por catálogo:
 
-from pages.sbs.cerrar_sesiones_page import CerrarSesionesPage
-from pages.sbs.login_page import LoginPage
-from pages.sbs.riesgos_page import RiesgosPage
-from pages.copilot_page import CopilotPage
-from services.copilot_service import CopilotService
-from config.settings import URL_LOGIN
+        CREDITO EFECTIVO:
+            - LIBRE DISPONIBILIDAD                  -> Venta CEF LD/RE
+            - COMPRA DE DEUDA                      -> Venta CEF CdD
+            - LD + CONSOLIDACION                   -> Venta CEF LD/RE
+            - LD + COMPRA DE DUDA Y/O CONSOLIDACION -> Venta CEF CdD
+            - C83 siempre: Portafolio CEF (Score BHV)
 
+        TARJETA DE CREDITO:
+            - TARJETA NUEVA -> Venta TC Nueva
+            - C83 = None
+        """
 
-class SbsFlow:
-    # Pre-step debe correr SOLO una vez por ejecución del proceso
-    _prestep_done: bool = False
+        self.wait_not_loading(timeout=40)
 
-    def __init__(self, driver, usuario: str, clave: str):
-        self.driver = driver
-        self.usuario = usuario
-        self.clave = clave
+        p = (producto or "").strip().upper()
+        d = " ".join((desproducto or "").strip().upper().split())  # normaliza espacios
 
-    def _pre_cerrar_sesion_activa(self):
-        logging.info("[SBS] Pre-step: cerrar sesión activa (cerrarSesiones.jsf)")
+        out = {"inicio_c14": None, "inicio_c83": None}
 
-        try:
-            self.driver.delete_all_cookies()
-        except Exception:
-            pass
+        if p == "CREDITO EFECTIVO":
 
-        page = CerrarSesionesPage(self.driver)
-        page.open()
-        outcome = page.cerrar_sesion(self.usuario, self.clave)
+            if d == "LIBRE DISPONIBILIDAD":
+                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
 
-        if outcome == "CERRADA":
-            logging.info("[SBS] Pre-step OK: sesión activa cerrada")
+            elif d == "COMPRA DE DEUDA":
+                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
+
+            elif d == "LD + CONSOLIDACION":
+                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
+
+            elif d == "LD + COMPRA DE DUDA Y/O CONSOLIDACION":
+                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
+
+            else:
+                logging.warning("RBM DESPRODUCTO no reconocido para CREDITO EFECTIVO: %s", d)
+                out["inicio_c14"] = None
+
+            # Siempre para Crédito Efectivo
+            out["inicio_c83"] = self.extract_badge_by_label_contains("Portafolio CEF (Score BHV)")
+
+        elif p == "TARJETA DE CREDITO":
+
+            if d == "TARJETA NUEVA":
+                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta TC Nueva")
+            else:
+                logging.warning("RBM DESPRODUCTO no reconocido para TARJETA DE CREDITO: %s", d)
+                out["inicio_c14"] = None
+
+            out["inicio_c83"] = None
+
         else:
-            logging.info("[SBS] Pre-step OK: no existían sesiones activas (continuar)")
+            logging.warning("RBM PRODUCTO no reconocido: %s", p)
 
-    def run(
-        self,
-        dni: str,
-        captcha_img_path: Path,
-        detallada_img_path: Path,
-        otros_img_path: Path,
-    ) -> dict:
-        # ==========================================================
-        # 0) PRE-STEP: Cerrar sesión activa (SOLO 1 VEZ POR EJECUCIÓN)
-        # ==========================================================
-        if not SbsFlow._prestep_done:
-            try:
-                self._pre_cerrar_sesion_activa()
-                SbsFlow._prestep_done = True
-            except Exception as e:
-                logging.warning("[SBS] Pre-step cerrar sesión falló, se continúa igual. Detalle=%r", e)
-        else:
-            logging.info("[SBS] Pre-step omitido (ya se ejecutó en esta corrida)")
-
-        # ==========================================================
-        # 1) Flujo SBS normal
-        # ==========================================================
-        logging.info("[SBS] Ir a login")
-        self.driver.get(URL_LOGIN)
-
-        login_page = LoginPage(self.driver)
-
-        logging.info("[SBS] Capturar captcha")
-        login_page.capture_image(captcha_img_path)
-
-        # --- Copilot en nueva pestaña (y luego cerrarla) ---
-        original_handle = self.driver.current_window_handle
-        self.driver.switch_to.new_window("tab")
-        copilot = CopilotService(CopilotPage(self.driver))
-
-        logging.info("[SBS] Resolver captcha con Copilot")
-        captcha = copilot.resolve_captcha(captcha_img_path)
-
-        try:
-            self.driver.close()
-        except Exception:
-            pass
-        self.driver.switch_to.window(original_handle)
-
-        logging.info("[SBS] Login (usuario=%s) + ingresar captcha", self.usuario)
-        login_page.fill_form(self.usuario, self.clave, captcha)
-
-        riesgos = RiesgosPage(self.driver)
-
-        logging.info("[SBS] Abrir módulo deuda")
-        riesgos.open_modulo_deuda()
-
-        logging.info("[SBS] Consultar DNI=%s", dni)
-        riesgos.consultar_por_dni(dni)
-
-        # ==========================================================
-        # 1.A) CAMINO "HISTORICA" (Detallada NO habilitada)
-        # ==========================================================
-        if (not riesgos.detallada_habilitada()) and riesgos.historica_habilitada():
-            logging.warning("[SBS] Modo HISTORICA: Detallada no está habilitada. Se captura evidencia y se continúa sin Posición Consolidada.")
-
-            # Asegurar que estamos en Histórica
-            try:
-                riesgos.go_historica()
-            except Exception:
-                pass
-
-            # En Histórica sí existe "Datos del Deudor" -> lo extraemos si se puede
-            datos_deudor = {}
-            try:
-                datos_deudor = riesgos.extract_datos_deudor()
-            except Exception as e:
-                logging.warning("[SBS] No se pudo extraer Datos del Deudor en Histórica: %r", e)
-
-            # Evidencia principal (guardamos en detallada_img_path aunque sea Histórica)
-            try:
-                riesgos.screenshot_contenido(str(detallada_img_path))
-            except Exception:
-                try:
-                    self.driver.save_screenshot(str(detallada_img_path))
-                except Exception:
-                    pass
-
-            # Intentar Otros Reportes (puede estar habilitado)
-            try:
-                riesgos.go_otros_reportes()
-                # misma lógica no bloqueante
-                disponible = riesgos.otros_reportes_disponible()
-                logging.info("[SBS] Otros Reportes disponible=%s (modo Histórica)", disponible)
-
-                loaded = riesgos.click_carteras_transferidas()
-                logging.info("[SBS] Carteras Transferidas loaded=%s (modo Histórica)", loaded)
-
-                if loaded and riesgos.has_carteras_table():
-                    riesgos.expand_all_rectificaciones(expected=2)
-
-                riesgos.screenshot_contenido(str(otros_img_path))
-            except Exception as e:
-                logging.warning("[SBS] Otros Reportes falló en modo Histórica: %r", e)
-                try:
-                    riesgos.screenshot_contenido(str(otros_img_path))
-                except Exception:
-                    pass
-
-            # Logout y retorno parcial
-            try:
-                logging.info("[SBS] Logout módulo")
-                riesgos.logout_modulo()
-                logging.info("[SBS] Logout portal")
-                riesgos.logout_portal()
-            except Exception:
-                pass
-
-            logging.info("[SBS] Fin flujo OK (modo HISTORICA)")
-            return {
-                "datos_deudor": datos_deudor,
-                "posicion": [],          # no hay posición consolidada
-                "modo": "HISTORICA",
-            }
-
-        # ==========================================================
-        # 1.B) CAMINO NORMAL (Consolidado)
-        # ==========================================================
-        logging.info("[SBS] Extraer datos (modo normal)")
-        datos_deudor = riesgos.extract_datos_deudor()
-        posicion = riesgos.extract_posicion_consolidada()
-
-        logging.info("[SBS] Ir a Detallada + screenshot")
-        riesgos.go_detallada()
-        self.driver.save_screenshot(str(detallada_img_path))
-
-        logging.info("[SBS] Ir a Otros Reportes")
-        riesgos.go_otros_reportes()
-
-        logging.info("[SBS] Intentar Carteras Transferidas (no bloqueante)")
-        try:
-            disponible = riesgos.otros_reportes_disponible()
-            logging.info("[SBS] Otros Reportes disponible=%s", disponible)
-
-            loaded = riesgos.click_carteras_transferidas()
-            logging.info("[SBS] Carteras Transferidas loaded=%s", loaded)
-
-            if loaded and riesgos.has_carteras_table():
-                logging.info("[SBS] Expandir rectificaciones (si hay)")
-                riesgos.expand_all_rectificaciones(expected=2)
-
-            logging.info("[SBS] Screenshot contenido (rápido + fallback)")
-            riesgos.screenshot_contenido(str(otros_img_path))
-
-        except Exception as e:
-            logging.exception("[SBS] Error en Otros Reportes/Carteras: %r", e)
-            riesgos.screenshot_contenido(str(otros_img_path))
-
-        logging.info("[SBS] Logout módulo")
-        riesgos.logout_modulo()
-
-        logging.info("[SBS] Logout portal")
-        riesgos.logout_portal()
-
-        logging.info("[SBS] Fin flujo OK (modo normal)")
-        return {
-            "datos_deudor": datos_deudor,
-            "posicion": posicion,
-            "modo": "NORMAL",
-        }
+        logging.info("RBM extract_scores_por_producto: %s", out)
+        return out
