@@ -1,4 +1,3 @@
-# pages/sbs/riesgos_page.py
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
@@ -272,3 +271,4 @@ class RiesgosPage(BasePage):
     def logout_portal(self):
         btn = self.wait.until(EC.element_to_be_clickable(self.BTN_SALIR_PORTAL))
         btn.click()
+
