@@ -1,147 +1,217 @@
-from pathlib import Path
-import logging
+ui/main_window.py
+import tkinter as tk
+from tkinter import ttk, messagebox
 
-from pages.sbs.cerrar_sesiones_page import CerrarSesionesPage
-from pages.sbs.login_page import LoginPage
-from pages.sbs.riesgos_page import RiesgosPage
-from pages.copilot_page import CopilotPage
-from services.copilot_service import CopilotService
-from config.settings import URL_LOGIN
+from controllers.consulta_controller import ConsultaController
+from ui.widgets.document_form import DocumentForm
+from ui.widgets.log_panel import LogPanel
+from ui.widgets.status_bar import StatusBar
+from ui.sbs_credentials_window import SbsCredentialsWindow
+from ui.matanalista_window import MatanalistaWindow
+
+class MainWindow(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Prisma Selenium - Consulta")
+        self.geometry("580x390")
+        self.resizable(False, False)
+        self._build()
+        self.controller = ConsultaController(
+            on_log=self._ui_log,
+            on_status=self._ui_status,
+            on_busy=self._ui_busy,
+            on_success=self._ui_success,
+            on_error=self._ui_error,
+        )
+
+    def _build(self):
+        root = ttk.Frame(self, padding=12)
+        root.pack(fill="both", expand=True)
+
+        self.form = DocumentForm(root)
+        self.form.pack(fill="x")
+
+        actions = ttk.Frame(root)
+        actions.pack(fill="x", pady=(10, 0))
+
+        self.btn_run = ttk.Button(actions, text="Ejecutar", command=self._on_run)
+        self.btn_run.pack(side="left")
+
+        self.btn_sbs = ttk.Button(actions, text="Credenciales SBS", command=self._on_sbs_credentials)
+        self.btn_sbs.pack(side="left", padx=(8, 0))
+
+        self.btn_mat = ttk.Button(actions, text="Matricula", command=self._on_matanalista)
+        self.btn_mat.pack(side="left", padx=(8, 0))
+
+        self.status = StatusBar(actions)
+        self.status.pack(side="left", padx=(12, 0))
+
+        self.log_panel = LogPanel(root)
+        self.log_panel.pack(fill="both", expand=True, pady=(10, 0))
+
+    def _on_sbs_credentials(self):
+        SbsCredentialsWindow(self)
+
+    def _on_matanalista(self):
+        MatanalistaWindow(self)
+
+    def _on_run(self):
+        req = self.form.get_request()
+        self.controller.run(req)
+
+    # --- callbacks thread-safe ---
+    def _ui_log(self, msg: str):
+        self.after(0, lambda: self.log_panel.append(msg))
+
+    def _ui_status(self, text: str):
+        self.after(0, lambda: self.status.set(text))
+
+    def _ui_busy(self, busy: bool):
+        def _apply():
+            self.btn_run.configure(state="disabled" if busy else "normal")
+            self.btn_sbs.configure(state="disabled" if busy else "normal")
+            self.btn_mat.configure(state="disabled" if busy else "normal")
+            self.form.set_busy(busy)
+        self.after(0, _apply)
+
+    def _ui_success(self, res):
+        def _apply():
+            self.status.set("finalizado")
+            self.log_panel.append(f"OK: {res.out_xlsm}")
+            self.log_panel.append(f"Evidencias: {res.results_dir}")
+        self.after(0, _apply)
+
+    def _ui_error(self, e: Exception):
+        def _apply():
+            self.status.set("error")
+            self.log_panel.append(f"ERROR: {repr(e)}")
+            messagebox.showerror("Error", str(e))
+        self.after(0, _apply)
 
 
-class SbsFlow:
-    # ✅ Pre-step debe correr SOLO una vez por ejecución del proceso
-    _prestep_done: bool = False
 
-    def __init__(self, driver, usuario: str, clave: str):
-        self.driver = driver
-        self.usuario = usuario
-        self.clave = clave
 
-    def _pre_cerrar_sesion_activa(self):
-        """
-        Paso previo: cerrar sesión activa en el Portal del Supervisado.
-        Outcomes esperados (ambos OK):
-          - "CERRADA": se cerró una sesión activa.
-          - "NO_ACTIVAS": no existían sesiones activas con el usuario ingresado.
-        """
-        logging.info("[SBS] Pre-step: cerrar sesión activa (cerrarSesiones.jsf)")
+controllers/consultacontroller.py
+from __future__ import annotations
+import threading
+from typing import Callable, Optional
 
-        # Limpieza suave de cookies antes del pre-step (no bloqueante)
-        try:
-            self.driver.delete_all_cookies()
-        except Exception:
-            pass
+from domain.models import ConsultaRequest, ConsultaResult, PersonDocument, DocumentType
+from config.product_catalog import PRODUCT_CATALOG, list_desproductos
+from main import run_app
 
-        page = CerrarSesionesPage(self.driver)
-        page.open()
-        outcome = page.cerrar_sesion(self.usuario, self.clave)
 
-        if outcome == "CERRADA":
-            logging.info("[SBS] Pre-step OK: sesión activa cerrada")
-        else:
-            logging.info("[SBS] Pre-step OK: no existían sesiones activas (continuar)")
+def _validate_document(doc: PersonDocument) -> Optional[str]:
+    n = (doc.doc_number or "").strip()
+    if doc.doc_type == DocumentType.DNI:
+        if not n.isdigit() or len(n) != 8:
+            return "DNI inválido (debe ser numérico de 8 dígitos)."
+        return None
+    if doc.doc_type == DocumentType.RUC:
+        if not n.isdigit() or len(n) != 11:
+            return "RUC inválido (debe ser numérico de 11 dígitos)."
+        return None
+    if doc.doc_type == DocumentType.CE:
+        if len(n) < 6:
+            return "CE inválido."
+        return None
+    if doc.doc_type == DocumentType.PASSPORT:
+        if len(n) < 6:
+            return "Pasaporte inválido."
+        return None
+    return "Tipo de documento no soportado."
 
-    def run(
+
+class ConsultaController:
+    def __init__(
         self,
-        dni: str,
-        captcha_img_path: Path,
-        detallada_img_path: Path,
-        otros_img_path: Path,
-    ) -> dict:
-        # ==========================================================
-        # 0) PRE-STEP: Cerrar sesión activa (SOLO 1 VEZ POR EJECUCIÓN)
-        # ==========================================================
-        if not SbsFlow._prestep_done:
-            try:
-                self._pre_cerrar_sesion_activa()
-                # ✅ marcar como ejecutado solo si no falló
-                SbsFlow._prestep_done = True
-            except Exception as e:
-                # No bloqueante: si falla este pre-step, continuamos al login normal.
-                # Si lo quieres obligatorio, cambia por: raise
-                logging.warning("[SBS] Pre-step cerrar sesión falló, se continúa igual. Detalle=%r", e)
+        on_log: Callable[[str], None],
+        on_status: Callable[[str], None],
+        on_busy: Callable[[bool], None],
+        on_success: Callable[[ConsultaResult], None],
+        on_error: Callable[[Exception], None],
+    ):
+        self.on_log = on_log
+        self.on_status = on_status
+        self.on_busy = on_busy
+        self.on_success = on_success
+        self.on_error = on_error
 
-                # Opcional: si prefieres NO reintentar en el flujo del cónyuge aunque falló:
-                # SbsFlow._prestep_done = True   si el pre-step falla en titular, el cónyuge lo intentará de nuevo
-        else:
-            logging.info("[SBS] Pre-step omitido (ya se ejecutó en esta corrida)")
+    def validate(self, req: ConsultaRequest) -> Optional[str]:
+        # ---- documentos ----
+        err = _validate_document(req.titular)
+        if err:
+            return err
 
-        # ==========================================================
-        # 1) Flujo SBS normal
-        # ==========================================================
-        logging.info("[SBS] Ir a login")
-        self.driver.get(URL_LOGIN)
+        if req.incluir_conyuge:
+            if req.conyuge is None:
+                return "Marcaste 'Incluir cónyuge' pero no enviaste documento del cónyuge."
+            err2 = _validate_document(req.conyuge)
+            if err2:
+                return f"Cónyuge: {err2}"
 
-        login_page = LoginPage(self.driver)
+        # ---- obligatorios de oportunidad ----
+        if not (req.numoportunidad or "").strip():
+            return "NUMOPORTUNIDAD es obligatorio."
+        if not (req.producto or "").strip():
+            return "PRODUCTO es obligatorio."
+        if not (req.desproducto or "").strip():
+            return "DESPRODUCTO es obligatorio."
 
-        logging.info("[SBS] Capturar captcha")
-        login_page.capture_image(captcha_img_path)
+        # ---- coherencia con catálogo ----
+        producto = req.producto.strip()
+        desproducto = req.desproducto.strip()
 
-        # --- Copilot en nueva pestaña (y luego cerrarla) ---
-        original_handle = self.driver.current_window_handle
-        self.driver.switch_to.new_window("tab")
-        copilot = CopilotService(CopilotPage(self.driver))
+        if producto not in PRODUCT_CATALOG:
+            return f"PRODUCTO inválido: '{producto}'."
+        if desproducto not in list_desproductos(producto):
+            return f"DESPRODUCTO inválido: '{desproducto}' para PRODUCTO '{producto}'."
 
-        logging.info("[SBS] Resolver captcha con Copilot")
-        captcha = copilot.resolve_captcha(captcha_img_path)
+        return None
 
+    def run(self, req: ConsultaRequest):
+        err = self.validate(req)
+        if err:
+            self.on_error(ValueError(err))
+            return
+
+        self.on_busy(True)
+        self.on_status("ejecutando...")
+        self.on_log(
+            f"Iniciando: Titular={req.titular.doc_type.value} {req.titular.doc_number} | "
+            f"Conyuge={'SI' if req.incluir_conyuge else 'NO'} | "
+            f"NUMOPORTUNIDAD={req.numoportunidad} | PRODUCTO={req.producto} | DESPRODUCTO={req.desproducto}"
+        )
+
+        t = threading.Thread(target=self._worker, args=(req,), daemon=True)
+        t.start()
+
+    def _worker(self, req: ConsultaRequest):
         try:
-            self.driver.close()
-        except Exception:
-            pass
-        self.driver.switch_to.window(original_handle)
+            if req.titular.doc_type != DocumentType.DNI:
+                raise ValueError("Por ahora solo está implementado DNI en el motor.")
 
-        logging.info("[SBS] Login (usuario=%s) + ingresar captcha", self.usuario)
-        login_page.fill_form(self.usuario, self.clave, captcha)
+            dni_titular = req.titular.doc_number.strip()
 
-        riesgos = RiesgosPage(self.driver)
+            dni_conyuge = None
+            if req.incluir_conyuge:
+                if req.conyuge is None:
+                    raise ValueError("No llegó documento del cónyuge.")
+                if req.conyuge.doc_type != DocumentType.DNI:
+                    raise ValueError("Por ahora el cónyuge solo está implementado para DNI.")
+                dni_conyuge = req.conyuge.doc_number.strip()
 
-        logging.info("[SBS] Abrir módulo deuda")
-        riesgos.open_modulo_deuda()
+            out_xlsm, results_dir = run_app(
+                dni_titular=dni_titular,
+                dni_conyuge=dni_conyuge,
+                numoportunidad=req.numoportunidad,
+                producto=req.producto,
+                desproducto=req.desproducto,
+            )
 
-        logging.info("[SBS] Consultar DNI=%s", dni)
-        riesgos.consultar_por_dni(dni)
-
-        logging.info("[SBS] Extraer datos")
-        datos_deudor = riesgos.extract_datos_deudor()
-        posicion = riesgos.extract_posicion_consolidada()
-
-        logging.info("[SBS] Ir a Detallada + screenshot")
-        riesgos.go_detallada()
-        self.driver.save_screenshot(str(detallada_img_path))
-
-        logging.info("[SBS] Ir a Otros Reportes")
-        riesgos.go_otros_reportes()
-
-        logging.info("[SBS] Intentar Carteras Transferidas (no bloqueante)")
-        try:
-            disponible = riesgos.otros_reportes_disponible()
-            logging.info("[SBS] Otros Reportes disponible=%s", disponible)
-
-            loaded = riesgos.click_carteras_transferidas()
-            logging.info("[SBS] Carteras Transferidas loaded=%s", loaded)
-
-            if loaded and riesgos.has_carteras_table():
-                logging.info("[SBS] Expandir rectificaciones (si hay)")
-                riesgos.expand_all_rectificaciones(expected=2)
-
-            logging.info("[SBS] Screenshot contenido (rápido + fallback)")
-            riesgos.screenshot_contenido(str(otros_img_path))
+            self.on_success(ConsultaResult(out_xlsm=out_xlsm, results_dir=results_dir))
 
         except Exception as e:
-            logging.exception("[SBS] Error en Otros Reportes/Carteras: %r", e)
-            riesgos.screenshot_contenido(str(otros_img_path))
-
-        logging.info("[SBS] Logout módulo")
-        riesgos.logout_modulo()
-
-        logging.info("[SBS] Logout portal")
-        riesgos.logout_portal()
-
-        logging.info("[SBS] Fin flujo OK")
-        return {
-            "datos_deudor": datos_deudor,
-            "posicion": posicion,
-        }
-
+            self.on_error(e)
+        finally:
+            self.on_busy(False)
