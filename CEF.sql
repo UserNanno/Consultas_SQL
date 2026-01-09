@@ -63,7 +63,7 @@ class SbsFlow:
                 logging.warning("[SBS] Pre-step cerrar sesión falló, se continúa igual. Detalle=%r", e)
 
                 # Opcional: si prefieres NO reintentar en el flujo del cónyuge aunque falló:
-                # SbsFlow._prestep_done = True
+                # SbsFlow._prestep_done = True   si el pre-step falla en titular, el cónyuge lo intentará de nuevo
         else:
             logging.info("[SBS] Pre-step omitido (ya se ejecutó en esta corrida)")
 
@@ -144,3 +144,4 @@ class SbsFlow:
             "datos_deudor": datos_deudor,
             "posicion": posicion,
         }
+
