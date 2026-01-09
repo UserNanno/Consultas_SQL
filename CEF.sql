@@ -1,121 +1,407 @@
-import socket
+
+from __future__ import annotations
+
+import base64
 import time
-import subprocess
-import os
 from pathlib import Path
-from datetime import datetime
+import logging
 
-from config.settings import EDGE_EXE, DEBUG_PORT
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select
+from selenium.common.exceptions import TimeoutException
+
+from pages.base_page import BasePage
+from config.settings import URL_RBM
 
 
-class EdgeDebugLauncher:
-    def __init__(self):
-        self.process = None
-        self.profile_dir = None  # <- guardamos el perfil único por corrida
+class RbmPage(BasePage):
+    SELECT_TIPO_DOC = (By.ID, "CodTipoDocumento")
+    INPUT_DOC = (By.ID, "CodDocumento")
+    BTN_CONSULTAR = (By.ID, "btnConsultar")
 
-    def _wait_port(self, host, port, timeout=15):
-        start = time.time()
-        while time.time() - start < timeout:
+    PANEL_BODY = (By.CSS_SELECTOR, "div.panel-body")
+
+    TAB_CEM = (By.ID, "CEM-tab")
+    TABPANE_CEM = (By.ID, "CEM")  # data-target="#CEM"
+
+    def open(self):
+        self.driver.get(URL_RBM)
+        try:
+            self.wait.until(EC.presence_of_element_located(self.SELECT_TIPO_DOC))
+        except TimeoutException:
+            logging.warning(
+                "[RBM] No cargó SELECT_TIPO_DOC | url=%s | title=%s",
+                self.driver.current_url,
+                self.driver.title,
+            )
+            raise
+
+    # ----------------- helpers -----------------
+    def wait_not_loading(self, timeout=40) -> bool:
+        """
+        RBM tiene overlay de carga:
+          body.loading + .loadingmodal (capa blanca).
+        Esperamos a que se quite la clase "loading" del body.
+        """
+        end = time.time() + timeout
+        while time.time() < end:
             try:
-                with socket.create_connection((host, port), timeout=1):
+                is_loading = self.driver.execute_script(
+                    "return document.body && document.body.classList.contains('loading');"
+                )
+                if not is_loading:
                     return True
-            except OSError:
-                time.sleep(0.2)
+            except Exception:
+                pass
+            time.sleep(0.2)
         return False
 
-    def _is_port_open(self, host, port) -> bool:
-        try:
-            with socket.create_connection((host, port), timeout=0.5):
-                return True
-        except OSError:
-            return False
+    # ----------------- acciones -----------------
+    def consultar_dni(self, dni: str):
+        sel = Select(self.wait.until(EC.presence_of_element_located(self.SELECT_TIPO_DOC)))
+        sel.select_by_value("1")  # DNI
 
-    def ensure_running(self):
-        """
-        Lanza Edge con remote debugging SI el puerto no está ocupado.
-        Usa user-data-dir único por ejecución para poder matar SOLO ese Edge al final.
-        """
-        # Si ya está abierto el puerto, no relanzamos (evita duplicados).
-        # OJO: si el puerto quedó abierto de una corrida previa "colgada", preferimos fallar
-        # para no adjuntarnos a un Edge viejo.
-        if self._is_port_open("127.0.0.1", DEBUG_PORT):
-            raise RuntimeError(
-                f"El puerto {DEBUG_PORT} ya está en uso. "
-                "Cierra instancias previas de Edge debug o reinicia el proceso."
-            )
+        inp = self.wait.until(EC.element_to_be_clickable(self.INPUT_DOC))
+        inp.click()
+        inp.clear()
+        inp.send_keys(dni)
 
-        base = Path(os.environ["LOCALAPPDATA"]) / "PrismaProject" / "edge_profile"
-        base.mkdir(parents=True, exist_ok=True)
+        self.wait.until(EC.element_to_be_clickable(self.BTN_CONSULTAR)).click()
+        self.wait.until(EC.visibility_of_element_located(self.PANEL_BODY))
 
-        # ✅ perfil ÚNICO por corrida
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.profile_dir = base / f"run_{stamp}"
-        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        # importante para evitar captura con overlay
+        self.wait_not_loading(timeout=40)
 
-        args = [
-            EDGE_EXE,
-            f"--remote-debugging-port={DEBUG_PORT}",
-            f"--user-data-dir={str(self.profile_dir)}",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--new-window",
-            "about:blank",
-        ]
+    def go_cem_tab(self):
+        self.wait.until(EC.element_to_be_clickable(self.TAB_CEM)).click()
 
-        # Lanza Edge (guardamos el process)
-        self.process = subprocess.Popen(
-            args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+        # 1) tab seleccionado
+        self.wait.until(
+            lambda d: (d.find_element(*self.TAB_CEM).get_attribute("aria-selected") or "").lower()
+            == "true"
         )
 
-        if not self._wait_port("127.0.0.1", DEBUG_PORT, timeout=20):
-            raise RuntimeError("Edge no abrió el puerto de debugging")
+        # 2) panel activo/visible
+        def cem_ready(d):
+            pane = d.find_element(*self.TABPANE_CEM)
+            cls = (pane.get_attribute("class") or "").lower()
+            return ("active" in cls) and pane.is_displayed()
 
-    def close(self):
+        self.wait.until(cem_ready)
+
+        # 3) transición fade terminada (opacidad final)
+        self.wait.until(
+            lambda d: float(
+                d.execute_script(
+                    "return parseFloat(getComputedStyle(arguments[0]).opacity) || 1;",
+                    d.find_element(*self.TABPANE_CEM),
+                )
+            )
+            >= 0.99
+        )
+
+        self.wait.until(EC.visibility_of_element_located(self.PANEL_BODY))
+        self.wait_not_loading(timeout=40)
+
+    # ----------------- screenshots -----------------
+    def screenshot_panel_body_cdp(self, out_path):
         """
-        Cierra SOLO el Edge debug de esta corrida.
-        Estrategia robusta:
-        - matar msedge.exe cuyo CommandLine contenga nuestro user-data-dir y el puerto.
-        - luego, como fallback, intentar taskkill al PID si existe.
+        Captura robusta con CDP clip (ideal para Consumos donde se cortaba abajo).
+        Evita problemas de overlay/topbar/sidebar.
         """
-        # 1) kill por command line (más confiable)
-        if self.profile_dir:
-            prof = str(self.profile_dir).replace("\\", "\\\\")  # para PowerShell string
-            ps = f"""
-            $ErrorActionPreference = 'SilentlyContinue';
-            $port = '{DEBUG_PORT}';
-            $prof = '{prof}';
-            $procs = Get-CimInstance Win32_Process -Filter "Name='msedge.exe'";
-            foreach ($p in $procs) {{
-                $cmd = ($p.CommandLine | Out-String);
-                if ($cmd -and ($cmd -like "*--remote-debugging-port=$port*") -and ($cmd -like "*--user-data-dir=$prof*")) {{
-                    Stop-Process -Id $p.ProcessId -Force;
-                }}
-            }}
+        self.wait_not_loading(timeout=40)
+
+        panel = self.wait.until(EC.presence_of_element_located(self.PANEL_BODY))
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", panel)
+        time.sleep(0.25)
+
+        # ocultar elementos fixed que estorban
+        self.driver.execute_script(
             """
+            window.__rbm_prev_vis = window.__rbm_prev_vis || {};
+            const sels = ['.topbar', '.left.side-menu'];
+            sels.forEach(sel => {
+              const el = document.querySelector(sel);
+              if (!el) return;
+              window.__rbm_prev_vis[sel] = el.style.visibility;
+              el.style.visibility = 'hidden';
+            });
+            """
+        )
 
-            try:
-                subprocess.run(
-                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                )
-            except Exception:
-                pass
+        try:
+            m = self.driver.execute_script(
+                """
+                const el = arguments[0];
+                const r = el.getBoundingClientRect();
+                const dpr = window.devicePixelRatio || 1;
+                const sx = window.scrollX || window.pageXOffset || 0;
+                const sy = window.scrollY || window.pageYOffset || 0;
 
-        # 2) fallback: taskkill por PID (si quedó)
-        if self.process is not None:
-            try:
-                subprocess.run(
-                    ["taskkill", "/PID", str(self.process.pid), "/T", "/F"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                )
-            except Exception:
-                pass
+                return {
+                  x: Math.max(0, r.left + sx),
+                  y: Math.max(0, r.top + sy),
+                  w: Math.max(1, r.width),
+                  h: Math.max(1, r.height),
+                  dpr: dpr
+                };
+                """,
+                panel,
+            )
 
-        self.process = None
-        self.profile_dir = None
+            clip = {
+                "x": m["x"] * m["dpr"],
+                "y": m["y"] * m["dpr"],
+                "width": m["w"] * m["dpr"],
+                "height": m["h"] * m["dpr"],
+                "scale": 1,
+            }
+
+            data = self.driver.execute_cdp_cmd(
+                "Page.captureScreenshot",
+                {
+                    "format": "png",
+                    "fromSurface": True,
+                    "captureBeyondViewport": True,
+                    "clip": clip,
+                },
+            )["data"]
+
+            out_path = Path(out_path)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(base64.b64decode(data))
+
+        finally:
+            self.driver.execute_script(
+                """
+                const prev = window.__rbm_prev_vis || {};
+                Object.keys(prev).forEach(sel => {
+                  const el = document.querySelector(sel);
+                  if (!el) return;
+                  el.style.visibility = prev[sel] || '';
+                });
+                """
+            )
+
+    # --- selectores existentes ---
+    INPUT_SEGMENTO_RIESGO = (By.ID, "SegmentoRiesgo")
+
+    # ----------------- extracción de datos -----------------
+    def _text_norm(self, s: str) -> str:
+        return " ".join((s or "").split()).strip()
+
+    def extract_segmento(self) -> str:
+        """
+        Encuentra el valor del campo 'Segmento' en el panel inicial.
+        Estrategia: buscar el div.editor-label con texto 'Segmento' y tomar el siguiente editor-field.
+        """
+        self.wait_not_loading(timeout=40)
+        el = self.driver.find_element(
+            By.XPATH,
+            "//div[contains(@class,'editor-label')][normalize-space()='Segmento']"
+            "/following-sibling::div[contains(@class,'editor-field')][1]",
+        )
+        return self._text_norm(el.text)
+
+    def extract_segmento_riesgo(self) -> str:
+        """
+        Toma el value del input hidden #SegmentoRiesgo (fuente más confiable que el texto del td).
+        """
+        self.wait_not_loading(timeout=40)
+        el = self.wait.until(EC.presence_of_element_located(self.INPUT_SEGMENTO_RIESGO))
+        return self._text_norm(el.get_attribute("value"))
+
+    def extract_situacion_laboral_badge(self) -> str:
+        """
+        Devuelve el texto del badge asociado a 'Situación Laboral'.
+        """
+        self.wait_not_loading(timeout=40)
+        span = self.driver.find_element(
+            By.XPATH,
+            "//li[contains(@class,'list-group-item')][.//div[normalize-space()='Situación Laboral']]"
+            "//span[contains(@class,'badge')]",
+        )
+        return self._text_norm(span.text)
+
+    def extract_score_rcc(self) -> str:
+        """
+        Devuelve el valor del badge para 'Score RCC'.
+        """
+        self.wait_not_loading(timeout=40)
+        span = self.driver.find_element(
+            By.XPATH,
+            "//li[contains(@class,'list-group-item')][contains(normalize-space(.),'Score RCC')]"
+            "//span[contains(@class,'badge')]",
+        )
+        return self._text_norm(span.text)
+
+    def extract_inicio_fields(self) -> dict:
+        """
+        Extrae todos los campos requeridos para la hoja 'Inicio':
+        - segmento (ej ENALTA)
+        - segmento_riesgo (ej A)
+        - situacion_laboral_raw (ej 'No PdH – Dependiente' o 'PDH')
+        - pdh (Si/No) => Si solo si situacion_laboral_raw == 'PDH'
+        - score_rcc (ej 289)
+        """
+        self.wait_not_loading(timeout=40)
+        segmento = self.extract_segmento()
+        segmento_riesgo = self.extract_segmento_riesgo()
+        sit_lab = self.extract_situacion_laboral_badge()
+        pdh = "Si" if sit_lab == "PDH" else "No"
+        score_rcc = self.extract_score_rcc()
+        data = {
+            "segmento": segmento,
+            "segmento_riesgo": segmento_riesgo,
+            "situacion_laboral_raw": sit_lab,
+            "pdh": pdh,
+            "score_rcc": score_rcc,
+        }
+        logging.info("RBM extract_inicio_fields: %s", data)
+        return data
+
+    def _num_from_value(self, raw: str) -> int:
+        """
+        Convierte textos como '-', '', '3,581', ' 212 ' a int.
+        Regla: '-' o vacío => 0
+        """
+        s = (raw or "").strip()
+        if not s or s == "-":
+            return 0
+        s = s.replace(",", "")  # 3,581 -> 3581
+        try:
+            return int(float(s))
+        except Exception:
+            return 0
+
+    def _get_input_value_int(self, input_id: str) -> int:
+        """
+        Lee value de un input por id. Si no existe, devuelve 0.
+        """
+        try:
+            el = self.driver.find_element(By.ID, input_id)
+            return self._num_from_value(el.get_attribute("value"))
+        except Exception:
+            return 0
+
+    def extract_cem_3cols(self) -> dict:
+        """
+        Extrae (solo) 3 columnas del CEM por producto:
+        - cuota_bcp (BCP - Cuota)
+        - cuota_sbs (SBS No BCP - Cuota)
+        - saldo_sbs (SBS No BCP - Saldo)
+        Usa inputs hidden por ID (más robusto que leer spans '-').
+        Nota: 'Linea No Utilizada' usa otros IDs (ver mapeo).
+        """
+        self.wait_not_loading(timeout=40)
+        data = {
+            "hipotecario": {
+                "cuota_bcp": self._get_input_value_int("CuotaHipotecarioBCP"),
+                "cuota_sbs": self._get_input_value_int("CuotaHipotecarioNoBCP"),
+                "saldo_sbs": self._get_input_value_int("SaldoHipotecarioNoBCP"),
+            },
+            "cef": {
+                "cuota_bcp": self._get_input_value_int("CuotaCEFBCP"),
+                "cuota_sbs": self._get_input_value_int("CuotaCEFNoBCP"),
+                "saldo_sbs": self._get_input_value_int("SaldoCEFNoBCP"),
+            },
+            "vehicular": {
+                "cuota_bcp": self._get_input_value_int("CuotaCVBCP"),
+                "cuota_sbs": self._get_input_value_int("CuotaCVNoBCP"),
+                "saldo_sbs": self._get_input_value_int("SaldoCVNoBCP"),
+            },
+            "pyme": {
+                "cuota_bcp": self._get_input_value_int("CuotaPymeBCP"),
+                "cuota_sbs": self._get_input_value_int("CuotaPymeNoBCP"),
+                "saldo_sbs": self._get_input_value_int("SaldoPymeNoBCP"),
+            },
+            "comercial": {
+                "cuota_bcp": self._get_input_value_int("CuotaComercialBCP"),
+                "cuota_sbs": self._get_input_value_int("CuotaComercialNoBCP"),
+                "saldo_sbs": self._get_input_value_int("SaldoComercialNoBCP"),
+            },
+            "deuda_indirecta": {
+                # En tu HTML SBS(NoBCP) Cuota está como CuotaIndRCC y saldo como SaldoIndNoBCP
+                "cuota_bcp": self._get_input_value_int("CuotaIndBCP"),
+                "cuota_sbs": self._get_input_value_int("CuotaIndRCC"),
+                "saldo_sbs": self._get_input_value_int("SaldoIndNoBCP"),
+            },
+            "tarjeta": {
+                "cuota_bcp": self._get_input_value_int("CuotaTarjetaBCP"),
+                "cuota_sbs": self._get_input_value_int("CuotaTarjetaNoBCP"),
+                "saldo_sbs": self._get_input_value_int("SaldoTarjetaNoBCP"),
+            },
+            "linea_no_utilizada": {
+                # Regla del HTML:
+                # - BCP cuota: CuotaLineaDisponibleBCP (input text readonly, value="3")
+                # - SBS cuota: CuotaLineaDisponibleNoBCP (hidden, value="17")
+                # - SBS saldo: LineaDisponibleNoBCP (hidden, value="6308")  <-- saldo muestra la línea no utilizada
+                "cuota_bcp": self._get_input_value_int("CuotaLineaDisponibleBCP"),
+                "cuota_sbs": self._get_input_value_int("CuotaLineaDisponibleNoBCP"),
+                "saldo_sbs": self._get_input_value_int("LineaDisponibleNoBCP"),
+            },
+        }
+        logging.info("RBM extract_cem_3cols: %s", data)
+        return data
+
+    # ===================== extracción de scores Consumos según PRODUCTO/DESPRODUCTO =====================
+
+    def _xpath_literal(self, s: str) -> str:
+        """Escapa string para usarlo como literal en XPath."""
+        if "'" not in s:
+            return f"'{s}'"
+        if '"' not in s:
+            return f'"{s}"'
+        parts = s.split("'")
+        return "concat(" + ", \"'\", ".join([f"'{p}'" for p in parts]) + ")"
+
+    def extract_badge_by_label_contains(self, label_text: str) -> str:
+        """
+        Busca un list-group-item que contenga label_text y devuelve el número del badge-pill asociado.
+        Ej: 'Venta CEF LD/RE' -> '252'
+        """
+        self.wait_not_loading(timeout=40)
+        label_text = self._text_norm(label_text)
+
+        xpath = (
+            "//li[contains(@class,'list-group-item')]"
+            f"[.//div[contains(normalize-space(.), {self._xpath_literal(label_text)})]]"
+            "//span[contains(@class,'badge') and contains(@class,'badge-pill')]"
+        )
+        el = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+        return self._text_norm(el.text)
+
+    def extract_scores_por_producto(self, producto: str, desproducto: str | None = None) -> dict:
+        """
+        Reglas:
+        - Si producto == 'CREDITO EFECTIVO':
+            - C14 depende de DESPRODUCTO:
+                * Si contiene 'COMPRA DE DEUDA' (en cualquier variante) -> 'Venta CEF CdD'
+                * Caso contrario -> 'Venta CEF LD/RE'
+            - C83 siempre: 'Portafolio CEF (Score BHV)'
+        - Si producto == 'TARJETA DE CREDITO':
+            - C14: 'Venta TC Nueva'
+            - C83: None
+        """
+        self.wait_not_loading(timeout=40)
+
+        p = (producto or "").strip().upper()
+        d = " ".join((desproducto or "").strip().upper().split())  # normaliza espacios
+
+        out = {"inicio_c14": None, "inicio_c83": None}
+
+        if p == "CREDITO EFECTIVO":
+            if "COMPRA DE DEUDA" in d:
+                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
+            else:
+                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
+
+            out["inicio_c83"] = self.extract_badge_by_label_contains("Portafolio CEF (Score BHV)")
+
+        elif p == "TARJETA DE CREDITO":
+            out["inicio_c14"] = self.extract_badge_by_label_contains("Venta TC Nueva")
+            out["inicio_c83"] = None
+
+        logging.info("RBM extract_scores_por_producto: %s", out)
+        return out
