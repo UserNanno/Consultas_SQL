@@ -1,59 +1,22 @@
-    def extract_scores_por_producto(self, producto: str, desproducto: str | None = None) -> dict:
-        """
-        Reglas explícitas por catálogo:
+def extract_badge_by_label_contains(self, label_text: str) -> str:
+    """
+    Busca un list-group-item que contenga label_text y devuelve el número del badge-pill asociado.
+    Si el badge dice 'SIN SCORE', devuelve '0'.
+    """
+    self.wait_not_loading(timeout=40)
+    label_text = self._text_norm(label_text)
 
-        CREDITO EFECTIVO:
-            - LIBRE DISPONIBILIDAD                  -> Venta CEF LD/RE
-            - COMPRA DE DEUDA                      -> Venta CEF CdD
-            - LD + CONSOLIDACION                   -> Venta CEF LD/RE
-            - LD + COMPRA DE DUDA Y/O CONSOLIDACION -> Venta CEF CdD
-            - C83 siempre: Portafolio CEF (Score BHV)
+    xpath = (
+        "//li[contains(@class,'list-group-item')]"
+        f"[.//div[contains(normalize-space(.), {self._xpath_literal(label_text)})]]"
+        "//span[contains(@class,'badge') and contains(@class,'badge-pill')]"
+    )
+    el = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
 
-        TARJETA DE CREDITO:
-            - TARJETA NUEVA -> Venta TC Nueva
-            - C83 = None
-        """
+    raw = self._text_norm(el.text).upper()
 
-        self.wait_not_loading(timeout=40)
+    # ✅ regla: "SIN SCORE" => 0
+    if raw == "SIN SCORE":
+        return "0"
 
-        p = (producto or "").strip().upper()
-        d = " ".join((desproducto or "").strip().upper().split())  # normaliza espacios
-
-        out = {"inicio_c14": None, "inicio_c83": None}
-
-        if p == "CREDITO EFECTIVO":
-
-            if d == "LIBRE DISPONIBILIDAD":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
-
-            elif d == "COMPRA DE DEUDA":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
-
-            elif d == "LD + CONSOLIDACION":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
-
-            elif d == "LD + COMPRA DE DUDA Y/O CONSOLIDACION":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
-
-            else:
-                logging.warning("RBM DESPRODUCTO no reconocido para CREDITO EFECTIVO: %s", d)
-                out["inicio_c14"] = None
-
-            # Siempre para Crédito Efectivo
-            out["inicio_c83"] = self.extract_badge_by_label_contains("Portafolio CEF (Score BHV)")
-
-        elif p == "TARJETA DE CREDITO":
-
-            if d == "TARJETA NUEVA":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta TC Nueva")
-            else:
-                logging.warning("RBM DESPRODUCTO no reconocido para TARJETA DE CREDITO: %s", d)
-                out["inicio_c14"] = None
-
-            out["inicio_c83"] = None
-
-        else:
-            logging.warning("RBM PRODUCTO no reconocido: %s", p)
-
-        logging.info("RBM extract_scores_por_producto: %s", out)
-        return out
+    return self._text_norm(el.text)
