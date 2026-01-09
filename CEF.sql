@@ -1,7 +1,7 @@
 from pathlib import Path
 import logging
 
-from pages.sbs.cerrar_sesiones_page import CerrarSesionesPage 
+from pages.sbs.cerrar_sesiones_page import CerrarSesionesPage
 from pages.sbs.login_page import LoginPage
 from pages.sbs.riesgos_page import RiesgosPage
 from pages.copilot_page import CopilotPage
@@ -10,6 +10,9 @@ from config.settings import URL_LOGIN
 
 
 class SbsFlow:
+    # ✅ Pre-step debe correr SOLO una vez por ejecución del proceso
+    _prestep_done: bool = False
+
     def __init__(self, driver, usuario: str, clave: str):
         self.driver = driver
         self.usuario = usuario
@@ -47,14 +50,22 @@ class SbsFlow:
         otros_img_path: Path,
     ) -> dict:
         # ==========================================================
-        # 0) PRE-STEP: Cerrar sesión activa (siempre al iniciar)
+        # 0) PRE-STEP: Cerrar sesión activa (SOLO 1 VEZ POR EJECUCIÓN)
         # ==========================================================
-        try:
-            self._pre_cerrar_sesion_activa()
-        except Exception as e:
-            # No bloqueante: si falla este pre-step, continuamos al login normal.
-            # Si lo quieres obligatorio, cambia por: raise
-            logging.warning("[SBS] Pre-step cerrar sesión falló, se continúa igual. Detalle=%r", e)
+        if not SbsFlow._prestep_done:
+            try:
+                self._pre_cerrar_sesion_activa()
+                # ✅ marcar como ejecutado solo si no falló
+                SbsFlow._prestep_done = True
+            except Exception as e:
+                # No bloqueante: si falla este pre-step, continuamos al login normal.
+                # Si lo quieres obligatorio, cambia por: raise
+                logging.warning("[SBS] Pre-step cerrar sesión falló, se continúa igual. Detalle=%r", e)
+
+                # Opcional: si prefieres NO reintentar en el flujo del cónyuge aunque falló:
+                # SbsFlow._prestep_done = True
+        else:
+            logging.info("[SBS] Pre-step omitido (ya se ejecutó en esta corrida)")
 
         # ==========================================================
         # 1) Flujo SBS normal
