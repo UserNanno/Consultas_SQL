@@ -1,433 +1,430 @@
-
-from __future__ import annotations
-
-import base64
-import time
-from pathlib import Path
-import logging
-
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import Select
-from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+import logging
 
 from pages.base_page import BasePage
-from config.settings import URL_RBM
 
 
-class RbmPage(BasePage):
-    SELECT_TIPO_DOC = (By.ID, "CodTipoDocumento")
-    INPUT_DOC = (By.ID, "CodDocumento")
+class RiesgosPage(BasePage):
+    MENU = (By.ID, "Menu")
+
+    TAB_DETALLADA = (By.ID, "idOp4")
+    TAB_OTROS_REPORTES = (By.ID, "idOp6")
+
+    CONTENIDO = (By.ID, "Contenido")
+
+    # Otros Reportes
+    OTROS_LIST = (By.ID, "OtrosReportes")
+    LNK_CARTERAS_TRANSFERIDAS = (
+        By.XPATH,
+        "//ul[@id='OtrosReportes']//a[normalize-space()='Carteras Transferidas']"
+    )
+
+    # Tabla contenedora "Otros Reportes"
+    TBL_OTROS_REPORTES = (
+        By.XPATH,
+        "//table[contains(@class,'Crw')][.//span[normalize-space()='Otros Reportes']]"
+    )
+
+    # Carteras
+    TBL_CARTERAS = (By.CSS_SELECTOR, "table#expand.Crw")
+    ARROWS = (By.CSS_SELECTOR, "table#expand div.arrow[title*='Rectificaciones']")
+
+    LINK_MODULO = (
+        By.CSS_SELECTOR,
+        "a.descripcion[onclick*=\"/criesgos/criesgos/criesgos.jsp\"]"
+    )
+
+    SELECT_TIPO_DOC = (By.ID, "as_tipo_doc")
+    INPUT_DOC = (By.CSS_SELECTOR, "input[name='as_doc_iden']")
     BTN_CONSULTAR = (By.ID, "btnConsultar")
 
-    PANEL_BODY = (By.CSS_SELECTOR, "div.panel-body")
+    TBL_DATOS_DEUDOR = (
+        By.XPATH,
+        "//table[contains(@class,'Crw')][.//b[contains(@class,'F') and contains(normalize-space(.),'Datos del Deudor')]]"
+    )
+    TBL_POSICION = (
+        By.XPATH,
+        "//table[contains(@class,'Crw')][.//span[contains(@class,'F') and contains(normalize-space(.),'Posición Consolidada del Deudor')]]"
+    )
 
-    TAB_CEM = (By.ID, "CEM-tab")
-    TABPANE_CEM = (By.ID, "CEM")  # data-target="#CEM"
+    LINK_SALIR_CRIESGOS = (By.CSS_SELECTOR, "a[href*='/criesgos/logout?c_c_producto=00002']")
+    BTN_SALIR_PORTAL = (By.CSS_SELECTOR, "a[onclick*=\"goTo('logout')\"]")
 
-    def open(self):
-        self.driver.get(URL_RBM)
-        try:
-            self.wait.until(EC.presence_of_element_located(self.SELECT_TIPO_DOC))
-        except TimeoutException:
-            logging.warning(
-                "[RBM] No cargó SELECT_TIPO_DOC | url=%s | title=%s",
-                self.driver.current_url,
-                self.driver.title,
-            )
-            raise
+    def open_modulo_deuda(self):
+        link = self.wait.until(EC.element_to_be_clickable(self.LINK_MODULO))
+        link.click()
 
-    # ----------------- helpers -----------------
-    def wait_not_loading(self, timeout=40) -> bool:
-        """
-        RBM tiene overlay de carga:
-          body.loading + .loadingmodal (capa blanca).
-        Esperamos a que se quite la clase "loading" del body.
-        """
-        end = time.time() + timeout
-        while time.time() < end:
-            try:
-                is_loading = self.driver.execute_script(
-                    "return document.body && document.body.classList.contains('loading');"
-                )
-                if not is_loading:
-                    return True
-            except Exception:
-                pass
-            time.sleep(0.2)
-        return False
-
-    # ----------------- acciones -----------------
-    def consultar_dni(self, dni: str):
-        sel = Select(self.wait.until(EC.presence_of_element_located(self.SELECT_TIPO_DOC)))
-        sel.select_by_value("1")  # DNI
+    def consultar_por_dni(self, dni: str):
+        sel = self.wait.until(EC.presence_of_element_located(self.SELECT_TIPO_DOC))
+        Select(sel).select_by_value("11")
 
         inp = self.wait.until(EC.element_to_be_clickable(self.INPUT_DOC))
         inp.click()
         inp.clear()
         inp.send_keys(dni)
 
-        self.wait.until(EC.element_to_be_clickable(self.BTN_CONSULTAR)).click()
-        self.wait.until(EC.visibility_of_element_located(self.PANEL_BODY))
+        btn = self.wait.until(EC.element_to_be_clickable(self.BTN_CONSULTAR))
+        btn.click()
 
-        # importante para evitar captura con overlay
-        self.wait_not_loading(timeout=40)
+        # ✅ NUEVO: si SBS muestra un JS alert, aceptarlo y continuar
+        # (ej: "no hay Información de Posición Consolidada... se muestra Histórica")
+        alert_txt = self.accept_alert_if_present(timeout=2.5)
+        if alert_txt:
+            logging.warning("[SBS] Alert al consultar DNI=%s: %s", dni, alert_txt)
 
-    def go_cem_tab(self):
-        self.wait.until(EC.element_to_be_clickable(self.TAB_CEM)).click()
+    def go_detallada(self):
+        self.wait.until(EC.presence_of_element_located(self.MENU))
+        self.wait.until(EC.element_to_be_clickable(self.TAB_DETALLADA)).click()
+        self._wait_tab_loaded()
 
-        # 1) tab seleccionado
-        self.wait.until(
-            lambda d: (d.find_element(*self.TAB_CEM).get_attribute("aria-selected") or "").lower()
-            == "true"
-        )
+    def go_otros_reportes(self):
+        self.wait.until(EC.presence_of_element_located(self.MENU))
+        self.wait.until(EC.element_to_be_clickable(self.TAB_OTROS_REPORTES)).click()
 
-        # 2) panel activo/visible
-        def cem_ready(d):
-            pane = d.find_element(*self.TABPANE_CEM)
-            cls = (pane.get_attribute("class") or "").lower()
-            return ("active" in cls) and pane.is_displayed()
+        # Espera corta: el contenido/tablas aparecen rápido
+        short_wait = WebDriverWait(self.driver, 6)
+        short_wait.until(EC.presence_of_element_located(self.CONTENIDO))
+        short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
 
-        self.wait.until(cem_ready)
-
-        # 3) transición fade terminada (opacidad final)
-        self.wait.until(
-            lambda d: float(
-                d.execute_script(
-                    "return parseFloat(getComputedStyle(arguments[0]).opacity) || 1;",
-                    d.find_element(*self.TABPANE_CEM),
-                )
-            )
-            >= 0.99
-        )
-
-        self.wait.until(EC.visibility_of_element_located(self.PANEL_BODY))
-        self.wait_not_loading(timeout=40)
-
-    # ----------------- screenshots -----------------
-    def screenshot_panel_body_cdp(self, out_path):
+    # ===================== CLAVE: no demorar si no hay info =====================
+    def otros_reportes_disponible(self) -> bool:
         """
-        Captura robusta con CDP clip (ideal para Consumos donde se cortaba abajo).
-        Evita problemas de overlay/topbar/sidebar.
+        Determina si existen opciones en "Otros Reportes" SIN usar waits largos.
+        - Si el texto contiene 'No existe información...' => False inmediato
+        - Si existe UL#OtrosReportes => True
         """
-        self.wait_not_loading(timeout=40)
-
-        panel = self.wait.until(EC.presence_of_element_located(self.PANEL_BODY))
-        self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", panel)
-        time.sleep(0.25)
-
-        # ocultar elementos fixed que estorban
-        self.driver.execute_script(
-            """
-            window.__rbm_prev_vis = window.__rbm_prev_vis || {};
-            const sels = ['.topbar', '.left.side-menu'];
-            sels.forEach(sel => {
-              const el = document.querySelector(sel);
-              if (!el) return;
-              window.__rbm_prev_vis[sel] = el.style.visibility;
-              el.style.visibility = 'hidden';
-            });
-            """
-        )
+        short_wait = WebDriverWait(self.driver, 3)
 
         try:
-            m = self.driver.execute_script(
-                """
-                const el = arguments[0];
-                const r = el.getBoundingClientRect();
-                const dpr = window.devicePixelRatio || 1;
-                const sx = window.scrollX || window.pageXOffset || 0;
-                const sy = window.scrollY || window.pageYOffset || 0;
+            tbl = short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
+        except TimeoutException:
+            return False
 
-                return {
-                  x: Math.max(0, r.left + sx),
-                  y: Math.max(0, r.top + sy),
-                  w: Math.max(1, r.width),
-                  h: Math.max(1, r.height),
-                  dpr: dpr
-                };
-                """,
-                panel,
-            )
+        txt = " ".join((tbl.text or "").split()).lower()
+        if "no existe información en otros reportes" in txt:
+            return False
 
-            clip = {
-                "x": m["x"] * m["dpr"],
-                "y": m["y"] * m["dpr"],
-                "width": m["w"] * m["dpr"],
-                "height": m["h"] * m["dpr"],
-                "scale": 1,
-            }
+        # Si hay UL, hay opciones
+        return len(tbl.find_elements(By.ID, "OtrosReportes")) > 0
 
-            data = self.driver.execute_cdp_cmd(
-                "Page.captureScreenshot",
-                {
-                    "format": "png",
-                    "fromSurface": True,
-                    "captureBeyondViewport": True,
-                    "clip": clip,
-                },
-            )["data"]
-
-            out_path = Path(out_path)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_bytes(base64.b64decode(data))
-
-        finally:
-            self.driver.execute_script(
-                """
-                const prev = window.__rbm_prev_vis || {};
-                Object.keys(prev).forEach(sel => {
-                  const el = document.querySelector(sel);
-                  if (!el) return;
-                  el.style.visibility = prev[sel] || '';
-                });
-                """
-            )
-
-    # --- selectores existentes ---
-    INPUT_SEGMENTO_RIESGO = (By.ID, "SegmentoRiesgo")
-
-    # ----------------- extracción de datos -----------------
-    def _text_norm(self, s: str) -> str:
-        return " ".join((s or "").split()).strip()
-
-    def extract_segmento(self) -> str:
+    def click_carteras_transferidas(self) -> bool:
         """
-        Encuentra el valor del campo 'Segmento' en el panel inicial.
-        Estrategia: buscar el div.editor-label con texto 'Segmento' y tomar el siguiente editor-field.
+        No bloqueante y SIN waits largos.
+        - Si no hay info => return False inmediato
+        - Si hay lista, intenta click con wait corto y valida carga con wait corto
         """
-        self.wait_not_loading(timeout=40)
-        el = self.driver.find_element(
-            By.XPATH,
-            "//div[contains(@class,'editor-label')][normalize-space()='Segmento']"
-            "/following-sibling::div[contains(@class,'editor-field')][1]",
-        )
-        return self._text_norm(el.text)
+        short_wait = WebDriverWait(self.driver, 3)
 
-    def extract_segmento_riesgo(self) -> str:
-        """
-        Toma el value del input hidden #SegmentoRiesgo (fuente más confiable que el texto del td).
-        """
-        self.wait_not_loading(timeout=40)
-        el = self.wait.until(EC.presence_of_element_located(self.INPUT_SEGMENTO_RIESGO))
-        return self._text_norm(el.get_attribute("value"))
+        try:
+            tbl = short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
+        except TimeoutException:
+            return False
 
-    def extract_situacion_laboral_badge(self) -> str:
-        """
-        Devuelve el texto del badge asociado a 'Situación Laboral'.
-        """
-        self.wait_not_loading(timeout=40)
-        span = self.driver.find_element(
-            By.XPATH,
-            "//li[contains(@class,'list-group-item')][.//div[normalize-space()='Situación Laboral']]"
-            "//span[contains(@class,'badge')]",
-        )
-        return self._text_norm(span.text)
+        txt = " ".join((tbl.text or "").split()).lower()
+        if "no existe información en otros reportes" in txt:
+            return False
 
-    def extract_score_rcc(self) -> str:
-        """
-        Devuelve el valor del badge para 'Score RCC'.
-        """
-        self.wait_not_loading(timeout=40)
-        span = self.driver.find_element(
-            By.XPATH,
-            "//li[contains(@class,'list-group-item')][contains(normalize-space(.),'Score RCC')]"
-            "//span[contains(@class,'badge')]",
-        )
-        return self._text_norm(span.text)
+        ul_list = tbl.find_elements(By.ID, "OtrosReportes")
+        if not ul_list:
+            return False
 
-    def extract_inicio_fields(self) -> dict:
-        """
-        Extrae todos los campos requeridos para la hoja 'Inicio':
-        - segmento (ej ENALTA)
-        - segmento_riesgo (ej A)
-        - situacion_laboral_raw (ej 'No PdH – Dependiente' o 'PDH')
-        - pdh (Si/No) => Si solo si situacion_laboral_raw == 'PDH'
-        - score_rcc (ej 289)
-        """
-        self.wait_not_loading(timeout=40)
-        segmento = self.extract_segmento()
-        segmento_riesgo = self.extract_segmento_riesgo()
-        sit_lab = self.extract_situacion_laboral_badge()
-        pdh = "Si" if sit_lab == "PDH" else "No"
-        score_rcc = self.extract_score_rcc()
-        data = {
-            "segmento": segmento,
-            "segmento_riesgo": segmento_riesgo,
-            "situacion_laboral_raw": sit_lab,
-            "pdh": pdh,
-            "score_rcc": score_rcc,
-        }
-        logging.info("RBM extract_inicio_fields: %s", data)
+        ul = ul_list[0]
+        links = ul.find_elements(By.XPATH, ".//a[normalize-space()='Carteras Transferidas']")
+        if not links:
+            return False
+
+        # Click (sin self.wait)
+        try:
+            links[0].click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", links[0])
+
+        # Validar carga con wait corto
+        short_wait2 = WebDriverWait(self.driver, 5)
+
+        def _loaded(d):
+            try:
+                if d.find_elements(*self.TBL_CARTERAS):
+                    return True
+            except Exception:
+                pass
+            try:
+                return "buscarinfocarterastransferidas" in (d.current_url or "")
+            except Exception:
+                return False
+
+        try:
+            short_wait2.until(_loaded)
+            short_wait2.until(EC.presence_of_element_located(self.CONTENIDO))
+            return True
+        except TimeoutException:
+            return False
+
+    def has_carteras_table(self) -> bool:
+        try:
+            self.driver.find_element(*self.TBL_CARTERAS)
+            return True
+        except NoSuchElementException:
+            return False
+
+    def expand_all_rectificaciones(self, expected: int = 2):
+        arrows = self.driver.find_elements(*self.ARROWS)
+        if not arrows:
+            return
+
+        for arrow in arrows[:expected]:
+            try:
+                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", arrow)
+                try:
+                    arrow.click()
+                except Exception:
+                    self.driver.execute_script("arguments[0].click();", arrow)
+
+                def _expanded(d):
+                    try:
+                        master_tr = arrow.find_element(By.XPATH, "./ancestor::tr[contains(@class,'master')]")
+                        detail_tr = master_tr.find_element(
+                            By.XPATH, "following-sibling::tr[contains(@class,'Vde')][1]"
+                        )
+                        style = (detail_tr.get_attribute("style") or "").lower()
+                        return "display: none" not in style
+                    except Exception:
+                        return True
+
+                try:
+                    WebDriverWait(self.driver, 3).until(_expanded)
+                except Exception:
+                    pass
+            except Exception:
+                continue
+
+    def screenshot_contenido(self, out_path):
+        short_wait = WebDriverWait(self.driver, 4)
+        try:
+            el = short_wait.until(EC.presence_of_element_located(self.CONTENIDO))
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", el)
+            try:
+                el.screenshot(str(out_path))
+            except Exception:
+                self.driver.save_screenshot(str(out_path))
+        except TimeoutException:
+            self.driver.save_screenshot(str(out_path))
+
+    def _wait_tab_loaded(self):
+        self.wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+
+    def extract_datos_deudor(self) -> dict:
+        # ✅ NUEVO: por si el alert aparece justo antes de extraer
+        alert_txt = self.accept_alert_if_present(timeout=0.6)
+        if alert_txt:
+            logging.warning("[SBS] Alert previo a extraer Datos del Deudor: %s", alert_txt)
+
+        tbl = self.wait.until(EC.presence_of_element_located(self.TBL_DATOS_DEUDOR))
+        rows = tbl.find_elements(By.CSS_SELECTOR, "tbody tr")
+        data = {}
+        for r in rows:
+            tds = r.find_elements(By.CSS_SELECTOR, "td")
+            if len(tds) < 2:
+                continue
+            i = 0
+            while i < len(tds) - 1:
+                label_el = None
+                try:
+                    label_el = tds[i].find_element(By.CSS_SELECTOR, "b.Dz")
+                except Exception:
+                    pass
+                label = (label_el.text.strip() if label_el else tds[i].text.strip())
+                value_text = tds[i + 1].text.strip()
+                if label:
+                    label = " ".join(label.split())
+                    value_text = " ".join(value_text.split())
+                    data[label] = value_text
+                i += 2
         return data
 
-    def _num_from_value(self, raw: str) -> int:
-        """
-        Convierte textos como '-', '', '3,581', ' 212 ' a int.
-        Regla: '-' o vacío => 0
-        """
-        s = (raw or "").strip()
-        if not s or s == "-":
-            return 0
-        s = s.replace(",", "")  # 3,581 -> 3581
-        try:
-            return int(float(s))
-        except Exception:
-            return 0
+    def extract_posicion_consolidada(self) -> list:
+        alert_txt = self.accept_alert_if_present(timeout=0.6)
+        if alert_txt:
+            logging.warning("[SBS] Alert previo a extraer Posición Consolidada: %s", alert_txt)
 
-    def _get_input_value_int(self, input_id: str) -> int:
-        """
-        Lee value de un input por id. Si no existe, devuelve 0.
-        """
-        try:
-            el = self.driver.find_element(By.ID, input_id)
-            return self._num_from_value(el.get_attribute("value"))
-        except Exception:
-            return 0
-
-    def extract_cem_3cols(self) -> dict:
-        """
-        Extrae (solo) 3 columnas del CEM por producto:
-        - cuota_bcp (BCP - Cuota)
-        - cuota_sbs (SBS No BCP - Cuota)
-        - saldo_sbs (SBS No BCP - Saldo)
-        Usa inputs hidden por ID (más robusto que leer spans '-').
-        Nota: 'Linea No Utilizada' usa otros IDs (ver mapeo).
-        """
-        self.wait_not_loading(timeout=40)
-        data = {
-            "hipotecario": {
-                "cuota_bcp": self._get_input_value_int("CuotaHipotecarioBCP"),
-                "cuota_sbs": self._get_input_value_int("CuotaHipotecarioNoBCP"),
-                "saldo_sbs": self._get_input_value_int("SaldoHipotecarioNoBCP"),
-            },
-            "cef": {
-                "cuota_bcp": self._get_input_value_int("CuotaCEFBCP"),
-                "cuota_sbs": self._get_input_value_int("CuotaCEFNoBCP"),
-                "saldo_sbs": self._get_input_value_int("SaldoCEFNoBCP"),
-            },
-            "vehicular": {
-                "cuota_bcp": self._get_input_value_int("CuotaCVBCP"),
-                "cuota_sbs": self._get_input_value_int("CuotaCVNoBCP"),
-                "saldo_sbs": self._get_input_value_int("SaldoCVNoBCP"),
-            },
-            "pyme": {
-                "cuota_bcp": self._get_input_value_int("CuotaPymeBCP"),
-                "cuota_sbs": self._get_input_value_int("CuotaPymeNoBCP"),
-                "saldo_sbs": self._get_input_value_int("SaldoPymeNoBCP"),
-            },
-            "comercial": {
-                "cuota_bcp": self._get_input_value_int("CuotaComercialBCP"),
-                "cuota_sbs": self._get_input_value_int("CuotaComercialNoBCP"),
-                "saldo_sbs": self._get_input_value_int("SaldoComercialNoBCP"),
-            },
-            "deuda_indirecta": {
-                # En tu HTML SBS(NoBCP) Cuota está como CuotaIndRCC y saldo como SaldoIndNoBCP
-                "cuota_bcp": self._get_input_value_int("CuotaIndBCP"),
-                "cuota_sbs": self._get_input_value_int("CuotaIndRCC"),
-                "saldo_sbs": self._get_input_value_int("SaldoIndNoBCP"),
-            },
-            "tarjeta": {
-                "cuota_bcp": self._get_input_value_int("CuotaTarjetaBCP"),
-                "cuota_sbs": self._get_input_value_int("CuotaTarjetaNoBCP"),
-                "saldo_sbs": self._get_input_value_int("SaldoTarjetaNoBCP"),
-            },
-            "linea_no_utilizada": {
-                # Regla del HTML:
-                # - BCP cuota: CuotaLineaDisponibleBCP (input text readonly, value="3")
-                # - SBS cuota: CuotaLineaDisponibleNoBCP (hidden, value="17")
-                # - SBS saldo: LineaDisponibleNoBCP (hidden, value="6308")  <-- saldo muestra la línea no utilizada
-                "cuota_bcp": self._get_input_value_int("CuotaLineaDisponibleBCP"),
-                "cuota_sbs": self._get_input_value_int("CuotaLineaDisponibleNoBCP"),
-                "saldo_sbs": self._get_input_value_int("LineaDisponibleNoBCP"),
-            },
-        }
-        logging.info("RBM extract_cem_3cols: %s", data)
-        return data
-
-    # ===================== extracción de scores Consumos según PRODUCTO/DESPRODUCTO =====================
-
-    def _xpath_literal(self, s: str) -> str:
-        """Escapa string para usarlo como literal en XPath."""
-        if "'" not in s:
-            return f"'{s}'"
-        if '"' not in s:
-            return f'"{s}"'
-        parts = s.split("'")
-        return "concat(" + ", \"'\", ".join([f"'{p}'" for p in parts]) + ")"
-
-    def extract_badge_by_label_contains(self, label_text: str) -> str:
-        """
-        Busca un list-group-item que contenga label_text y devuelve el número del badge-pill asociado.
-        Ej: 'Venta CEF LD/RE' -> '252'
-        """
-        self.wait_not_loading(timeout=40)
-        label_text = self._text_norm(label_text)
-
-        xpath = (
-            "//li[contains(@class,'list-group-item')]"
-            f"[.//div[contains(normalize-space(.), {self._xpath_literal(label_text)})]]"
-            "//span[contains(@class,'badge') and contains(@class,'badge-pill')]"
-        )
-        el = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
-        return self._text_norm(el.text)
-
-    def extract_scores_por_producto(self, producto: str, desproducto: str | None = None) -> dict:
-        """
-        Reglas explícitas por catálogo:
-
-        CREDITO EFECTIVO:
-            - LIBRE DISPONIBILIDAD                  -> Venta CEF LD/RE
-            - COMPRA DE DEUDA                      -> Venta CEF CdD
-            - LD + CONSOLIDACION                   -> Venta CEF LD/RE
-            - LD + COMPRA DE DUDA Y/O CONSOLIDACION -> Venta CEF CdD
-            - C83 siempre: Portafolio CEF (Score BHV)
-
-        TARJETA DE CREDITO:
-            - TARJETA NUEVA -> Venta TC Nueva
-            - C83 = None
-        """
-
-        self.wait_not_loading(timeout=40)
-
-        p = (producto or "").strip().upper()
-        d = " ".join((desproducto or "").strip().upper().split())  # normaliza espacios
-
-        out = {"inicio_c14": None, "inicio_c83": None}
-
-        if p == "CREDITO EFECTIVO":
-
-            if d == "LIBRE DISPONIBILIDAD":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
-
-            elif d == "COMPRA DE DEUDA":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
-
-            elif d == "LD + CONSOLIDACION":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
-
-            elif d == "LD + COMPRA DE DUDA Y/O CONSOLIDACION":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
-
-            else:
-                logging.warning("RBM DESPRODUCTO no reconocido para CREDITO EFECTIVO: %s", d)
-                out["inicio_c14"] = None
-
-            # Siempre para Crédito Efectivo
-            out["inicio_c83"] = self.extract_badge_by_label_contains("Portafolio CEF (Score BHV)")
-
-        elif p == "TARJETA DE CREDITO":
-
-            if d == "TARJETA NUEVA":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta TC Nueva")
-            else:
-                logging.warning("RBM DESPRODUCTO no reconocido para TARJETA DE CREDITO: %s", d)
-                out["inicio_c14"] = None
-
-            out["inicio_c83"] = None
-
-        else:
-            logging.warning("RBM PRODUCTO no reconocido: %s", p)
-
-        logging.info("RBM extract_scores_por_producto: %s", out)
+        tbl = self.wait.until(EC.presence_of_element_located(self.TBL_POSICION))
+        trs = tbl.find_elements(By.CSS_SELECTOR, "tbody tr")
+        out = []
+        for tr in trs:
+            tds = tr.find_elements(By.CSS_SELECTOR, "td")
+            if len(tds) != 4:
+                continue
+            row = [" ".join(td.text.split()) for td in tds]
+            if row[0].upper() == "SALDOS":
+                continue
+            out.append(row)
         return out
+
+    def logout_modulo(self):
+        link = self.wait.until(EC.element_to_be_clickable(self.LINK_SALIR_CRIESGOS))
+        link.click()
+        self.wait.until(EC.presence_of_element_located(self.BTN_SALIR_PORTAL))
+
+    def logout_portal(self):
+        btn = self.wait.until(EC.element_to_be_clickable(self.BTN_SALIR_PORTAL))
+        btn.click()
+
+
+
+
+
+
+
+
+
+
+services/sbs_flow.py
+from pathlib import Path
+import logging
+
+from pages.sbs.cerrar_sesiones_page import CerrarSesionesPage
+from pages.sbs.login_page import LoginPage
+from pages.sbs.riesgos_page import RiesgosPage
+from pages.copilot_page import CopilotPage
+from services.copilot_service import CopilotService
+from config.settings import URL_LOGIN
+
+
+class SbsFlow:
+    # Pre-step debe correr SOLO una vez por ejecución del proceso
+    _prestep_done: bool = False
+
+    def __init__(self, driver, usuario: str, clave: str):
+        self.driver = driver
+        self.usuario = usuario
+        self.clave = clave
+
+    def _pre_cerrar_sesion_activa(self):
+        """
+        Paso previo: cerrar sesión activa en el Portal del Supervisado.
+        Outcomes esperados (ambos OK):
+          - "CERRADA": se cerró una sesión activa.
+          - "NO_ACTIVAS": no existían sesiones activas con el usuario ingresado.
+        """
+        logging.info("[SBS] Pre-step: cerrar sesión activa (cerrarSesiones.jsf)")
+
+        # Limpieza suave de cookies antes del pre-step (no bloqueante)
+        try:
+            self.driver.delete_all_cookies()
+        except Exception:
+            pass
+
+        page = CerrarSesionesPage(self.driver)
+        page.open()
+        outcome = page.cerrar_sesion(self.usuario, self.clave)
+
+        if outcome == "CERRADA":
+            logging.info("[SBS] Pre-step OK: sesión activa cerrada")
+        else:
+            logging.info("[SBS] Pre-step OK: no existían sesiones activas (continuar)")
+
+    def run(
+        self,
+        dni: str,
+        captcha_img_path: Path,
+        detallada_img_path: Path,
+        otros_img_path: Path,
+    ) -> dict:
+        # ==========================================================
+        # 0) PRE-STEP: Cerrar sesión activa (SOLO 1 VEZ POR EJECUCIÓN)
+        # ==========================================================
+        if not SbsFlow._prestep_done:
+            try:
+                self._pre_cerrar_sesion_activa()
+                # Marcar como ejecutado solo si no falló
+                SbsFlow._prestep_done = True
+            except Exception as e:
+                # No bloqueante: si falla este pre-step, continuamos al login normal.
+                # Si lo quieres obligatorio, cambia por: raise
+                logging.warning("[SBS] Pre-step cerrar sesión falló, se continúa igual. Detalle=%r", e)
+
+                # Opcional: si prefieres NO reintentar en el flujo del cónyuge aunque falló:
+                # SbsFlow._prestep_done = True  # si el pre-step falla en titular, el cónyuge lo intentará de nuevo
+        else:
+            logging.info("[SBS] Pre-step omitido (ya se ejecutó en esta corrida)")
+
+        # ==========================================================
+        # 1) Flujo SBS normal
+        # ==========================================================
+        logging.info("[SBS] Ir a login")
+        self.driver.get(URL_LOGIN)
+
+        login_page = LoginPage(self.driver)
+
+        logging.info("[SBS] Capturar captcha")
+        login_page.capture_image(captcha_img_path)
+
+        # --- Copilot en nueva pestaña (y luego cerrarla) ---
+        original_handle = self.driver.current_window_handle
+        self.driver.switch_to.new_window("tab")
+        copilot = CopilotService(CopilotPage(self.driver))
+
+        logging.info("[SBS] Resolver captcha con Copilot")
+        captcha = copilot.resolve_captcha(captcha_img_path)
+
+        try:
+            self.driver.close()
+        except Exception:
+            pass
+        self.driver.switch_to.window(original_handle)
+
+        logging.info("[SBS] Login (usuario=%s) + ingresar captcha", self.usuario)
+        login_page.fill_form(self.usuario, self.clave, captcha)
+
+        riesgos = RiesgosPage(self.driver)
+
+        logging.info("[SBS] Abrir módulo deuda")
+        riesgos.open_modulo_deuda()
+
+        logging.info("[SBS] Consultar DNI=%s", dni)
+        riesgos.consultar_por_dni(dni)
+
+        logging.info("[SBS] Extraer datos")
+        datos_deudor = riesgos.extract_datos_deudor()
+        posicion = riesgos.extract_posicion_consolidada()
+
+        logging.info("[SBS] Ir a Detallada + screenshot")
+        riesgos.go_detallada()
+        self.driver.save_screenshot(str(detallada_img_path))
+
+        logging.info("[SBS] Ir a Otros Reportes")
+        riesgos.go_otros_reportes()
+
+        logging.info("[SBS] Intentar Carteras Transferidas (no bloqueante)")
+        try:
+            disponible = riesgos.otros_reportes_disponible()
+            logging.info("[SBS] Otros Reportes disponible=%s", disponible)
+
+            loaded = riesgos.click_carteras_transferidas()
+            logging.info("[SBS] Carteras Transferidas loaded=%s", loaded)
+
+            if loaded and riesgos.has_carteras_table():
+                logging.info("[SBS] Expandir rectificaciones (si hay)")
+                riesgos.expand_all_rectificaciones(expected=2)
+
+            logging.info("[SBS] Screenshot contenido (rápido + fallback)")
+            riesgos.screenshot_contenido(str(otros_img_path))
+
+        except Exception as e:
+            logging.exception("[SBS] Error en Otros Reportes/Carteras: %r", e)
+            riesgos.screenshot_contenido(str(otros_img_path))
+
+        logging.info("[SBS] Logout módulo")
+        riesgos.logout_modulo()
+
+        logging.info("[SBS] Logout portal")
+        riesgos.logout_portal()
+
+        logging.info("[SBS] Fin flujo OK")
+        return {
+            "datos_deudor": datos_deudor,
+            "posicion": posicion,
+        }
