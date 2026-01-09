@@ -1,85 +1,267 @@
-2026-01-08 18:37:41,199 INFO === LOG INICIALIZADO ===
-2026-01-08 18:37:41,199 INFO LOG_PATH=D:\Datos de Usuarios\T72496\Desktop\PrismaProject\prisma_selenium.log
-2026-01-08 18:37:41,200 INFO === INICIO EJECUCION ===
-2026-01-08 18:37:41,200 INFO DNI_TITULAR=76500660 | DNI_CONYUGE=
-2026-01-08 18:37:41,200 INFO NUMOPORTUNIDAD=O0019148418 | PRODUCTO=TARJETA DE CREDITO | DESPRODUCTO=TARJETA NUEVA
-2026-01-08 18:37:41,200 INFO APP_DIR=D:\Datos de Usuarios\T72496\Desktop\PrismaProject
-2026-01-08 18:37:41,202 INFO MATANALISTA runtime=T72496
-2026-01-08 18:37:41,209 INFO SBS user runtime=T10595
-2026-01-08 18:37:48,202 INFO RESULTS_DIR=D:\Datos de Usuarios\T72496\Desktop\PrismaProject\results
-2026-01-08 18:37:48,202 INFO OUTPUT_XLSM=D:\Datos de Usuarios\T72496\Desktop\PrismaProject\results\O0019148418_T72496.xlsm
-2026-01-08 18:37:48,203 INFO == FLUJO SBS (TITULAR) INICIO ==
-2026-01-08 18:37:48,203 INFO [SBS] Pre-step: cerrar sesión activa (cerrarSesiones.jsf)
-2026-01-08 18:37:50,799 INFO [SBS] Pre-step OK: sesión activa cerrada
-2026-01-08 18:37:50,799 INFO [SBS] Ir a login
-2026-01-08 18:37:51,165 INFO [SBS] Capturar captcha
-2026-01-08 18:37:51,413 INFO [SBS] Resolver captcha con Copilot
-2026-01-08 18:38:01,749 INFO [SBS] Login (usuario=T10595) + ingresar captcha
-2026-01-08 18:38:04,993 INFO [SBS] Abrir módulo deuda
-2026-01-08 18:38:05,931 INFO [SBS] Consultar DNI=76500660
-2026-01-08 18:38:07,324 INFO [SBS] Extraer datos
-2026-01-08 18:38:10,524 INFO === FIN EJECUCION ===
-2026-01-08 18:38:10,532 ERROR EXCEPCION:
-Traceback (most recent call last):
-  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\utils\decorators.py", line 9, in wrapper
-    return fn(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^
-  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\main.py", line 143, in run_app
-    _ = SbsFlow(driver, sbs_user, sbs_pass).run(
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\services\sbs_flow.py", line 96, in run
-    datos_deudor = riesgos.extract_datos_deudor()
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\pages\sbs\riesgos_page.py", line 210, in extract_datos_deudor
-    tbl = self.wait.until(EC.presence_of_element_located(self.TBL_DATOS_DEUDOR))
-          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\support\wait.py", line 113, in until
-    value = method(self._driver)
-            ^^^^^^^^^^^^^^^^^^^^
-  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\support\expected_conditions.py", line 92, in _predicate
-    return driver.find_element(*locator)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\remote\webdriver.py", line 802, in find_element
-    return self.execute(Command.FIND_ELEMENT, {"using": by, "value": value})["value"]
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\remote\webdriver.py", line 432, in execute
-    self.error_handler.check_response(response)
-  File "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 231, in check_response
-    raise exception_class(message, screen, stacktrace, alert_text)  # type: ignore[call-arg]  # mypy is not smart enough here
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-selenium.common.exceptions.UnexpectedAlertPresentException: Alert Text: A la última fecha del Reporte no hay Información de Posición Consolidada,
+pages/base_page.py
+from selenium.webdriver.support.ui import WebDriverWait
 
-el deudor muestra información en las pantallas siguientes:
+class BasePage:
 
-- Historica
-
-a continuación se muestra la Información Histórica.
-Message: unexpected alert open: {Alert text : A la última fecha del Reporte no hay Información de Posición Consolidada,
-
-el deudor muestra información en las pantallas siguientes:
-
-- Historica
-
-a continuación se muestra la Información Histórica.}
-  (Session info: MicrosoftEdge=143.0.3650.96)
-Stacktrace:
-Symbols not available. Dumping unresolved backtrace:
-	0x7ff68efd87d5
-	0x7ff68ef48e44
-	0x7ff68f3331f2
-	0x7ff68eddcd4e
-	0x7ff68ed9982a
-	0x7ff68ed98b33
-	0x7ff68ed99653
-	0x7ff68ee822e4
-	0x7ff68ee9109c
-	0x7ff68ee8ac7f
-	0x7ff68f069b37
-	0x7ff68ef546a6
-	0x7ff68ef4eab4
-	0x7ff68ef4ebf9
-	0x7ff68ef42cbd
-	0x7ff8c03e259d
-	0x7ff8c278af78
+    def __init__(self, driver, timeout=30):
+        self.driver = driver
+        self.wait = WebDriverWait(driver, timeout)
 
 
+
+
+pages/sbs/riesgos_page.py
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from pages.base_page import BasePage
+
+
+class RiesgosPage(BasePage):
+    MENU = (By.ID, "Menu")
+
+    TAB_DETALLADA = (By.ID, "idOp4")
+    TAB_OTROS_REPORTES = (By.ID, "idOp6")
+
+    CONTENIDO = (By.ID, "Contenido")
+
+    # Otros Reportes
+    OTROS_LIST = (By.ID, "OtrosReportes")
+    LNK_CARTERAS_TRANSFERIDAS = (
+        By.XPATH,
+        "//ul[@id='OtrosReportes']//a[normalize-space()='Carteras Transferidas']"
+    )
+
+    # Tabla contenedora "Otros Reportes"
+    TBL_OTROS_REPORTES = (
+        By.XPATH,
+        "//table[contains(@class,'Crw')][.//span[normalize-space()='Otros Reportes']]"
+    )
+
+    # Carteras
+    TBL_CARTERAS = (By.CSS_SELECTOR, "table#expand.Crw")
+    ARROWS = (By.CSS_SELECTOR, "table#expand div.arrow[title*='Rectificaciones']")
+
+    LINK_MODULO = (
+        By.CSS_SELECTOR,
+        "a.descripcion[onclick*=\"/criesgos/criesgos/criesgos.jsp\"]"
+    )
+
+    SELECT_TIPO_DOC = (By.ID, "as_tipo_doc")
+    INPUT_DOC = (By.CSS_SELECTOR, "input[name='as_doc_iden']")
+    BTN_CONSULTAR = (By.ID, "btnConsultar")
+
+    TBL_DATOS_DEUDOR = (
+        By.XPATH,
+        "//table[contains(@class,'Crw')][.//b[contains(@class,'F') and contains(normalize-space(.),'Datos del Deudor')]]"
+    )
+    TBL_POSICION = (
+        By.XPATH,
+        "//table[contains(@class,'Crw')][.//span[contains(@class,'F') and contains(normalize-space(.),'Posición Consolidada del Deudor')]]"
+    )
+
+    LINK_SALIR_CRIESGOS = (By.CSS_SELECTOR, "a[href*='/criesgos/logout?c_c_producto=00002']")
+    BTN_SALIR_PORTAL = (By.CSS_SELECTOR, "a[onclick*=\"goTo('logout')\"]")
+
+    def open_modulo_deuda(self):
+        link = self.wait.until(EC.element_to_be_clickable(self.LINK_MODULO))
+        link.click()
+
+    def consultar_por_dni(self, dni: str):
+        sel = self.wait.until(EC.presence_of_element_located(self.SELECT_TIPO_DOC))
+        Select(sel).select_by_value("11")
+
+        inp = self.wait.until(EC.element_to_be_clickable(self.INPUT_DOC))
+        inp.click()
+        inp.clear()
+        inp.send_keys(dni)
+
+        btn = self.wait.until(EC.element_to_be_clickable(self.BTN_CONSULTAR))
+        btn.click()
+
+    def go_detallada(self):
+        self.wait.until(EC.presence_of_element_located(self.MENU))
+        self.wait.until(EC.element_to_be_clickable(self.TAB_DETALLADA)).click()
+        self._wait_tab_loaded()
+
+    def go_otros_reportes(self):
+        self.wait.until(EC.presence_of_element_located(self.MENU))
+        self.wait.until(EC.element_to_be_clickable(self.TAB_OTROS_REPORTES)).click()
+
+        # Espera corta: el contenido/tablas aparecen rápido
+        short_wait = WebDriverWait(self.driver, 6)
+        short_wait.until(EC.presence_of_element_located(self.CONTENIDO))
+        short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
+
+    # ===================== CLAVE: no demorar si no hay info =====================
+    def otros_reportes_disponible(self) -> bool:
+        """
+        Determina si existen opciones en "Otros Reportes" SIN usar waits largos.
+        - Si el texto contiene 'No existe información...' => False inmediato
+        - Si existe UL#OtrosReportes => True
+        """
+        short_wait = WebDriverWait(self.driver, 3)
+
+        try:
+            tbl = short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
+        except TimeoutException:
+            return False
+
+        txt = " ".join((tbl.text or "").split()).lower()
+        if "no existe información en otros reportes" in txt:
+            return False
+
+        # Si hay UL, hay opciones
+        return len(tbl.find_elements(By.ID, "OtrosReportes")) > 0
+
+    def click_carteras_transferidas(self) -> bool:
+        """
+        No bloqueante y SIN waits largos.
+        - Si no hay info => return False inmediato
+        - Si hay lista, intenta click con wait corto y valida carga con wait corto
+        """
+        short_wait = WebDriverWait(self.driver, 3)
+
+        try:
+            tbl = short_wait.until(EC.presence_of_element_located(self.TBL_OTROS_REPORTES))
+        except TimeoutException:
+            return False
+
+        txt = " ".join((tbl.text or "").split()).lower()
+        if "no existe información en otros reportes" in txt:
+            return False
+
+        ul_list = tbl.find_elements(By.ID, "OtrosReportes")
+        if not ul_list:
+            return False
+
+        ul = ul_list[0]
+        links = ul.find_elements(By.XPATH, ".//a[normalize-space()='Carteras Transferidas']")
+        if not links:
+            return False
+
+        # Click (sin self.wait)
+        try:
+            links[0].click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", links[0])
+
+        # Validar carga con wait corto
+        short_wait2 = WebDriverWait(self.driver, 5)
+
+        def _loaded(d):
+            try:
+                if d.find_elements(*self.TBL_CARTERAS):
+                    return True
+            except Exception:
+                pass
+            try:
+                return "buscarinfocarterastransferidas" in (d.current_url or "")
+            except Exception:
+                return False
+
+        try:
+            short_wait2.until(_loaded)
+            short_wait2.until(EC.presence_of_element_located(self.CONTENIDO))
+            return True
+        except TimeoutException:
+            return False
+
+    def has_carteras_table(self) -> bool:
+        try:
+            self.driver.find_element(*self.TBL_CARTERAS)
+            return True
+        except NoSuchElementException:
+            return False
+
+    def expand_all_rectificaciones(self, expected: int = 2):
+        arrows = self.driver.find_elements(*self.ARROWS)
+        if not arrows:
+            return
+
+        for arrow in arrows[:expected]:
+            try:
+                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", arrow)
+                try:
+                    arrow.click()
+                except Exception:
+                    self.driver.execute_script("arguments[0].click();", arrow)
+
+                def _expanded(d):
+                    try:
+                        master_tr = arrow.find_element(By.XPATH, "./ancestor::tr[contains(@class,'master')]")
+                        detail_tr = master_tr.find_element(By.XPATH, "following-sibling::tr[contains(@class,'Vde')][1]")
+                        style = (detail_tr.get_attribute("style") or "").lower()
+                        return "display: none" not in style
+                    except Exception:
+                        return True
+
+                try:
+                    WebDriverWait(self.driver, 3).until(_expanded)
+                except Exception:
+                    pass
+            except Exception:
+                continue
+
+    def screenshot_contenido(self, out_path):
+        short_wait = WebDriverWait(self.driver, 4)
+        try:
+            el = short_wait.until(EC.presence_of_element_located(self.CONTENIDO))
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'start'});", el)
+            try:
+                el.screenshot(str(out_path))
+            except Exception:
+                self.driver.save_screenshot(str(out_path))
+        except TimeoutException:
+            self.driver.save_screenshot(str(out_path))
+
+    def _wait_tab_loaded(self):
+        self.wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+
+    def extract_datos_deudor(self) -> dict:
+        tbl = self.wait.until(EC.presence_of_element_located(self.TBL_DATOS_DEUDOR))
+        rows = tbl.find_elements(By.CSS_SELECTOR, "tbody tr")
+        data = {}
+        for r in rows:
+            tds = r.find_elements(By.CSS_SELECTOR, "td")
+            if len(tds) < 2:
+                continue
+            i = 0
+            while i < len(tds) - 1:
+                label_el = None
+                try:
+                    label_el = tds[i].find_element(By.CSS_SELECTOR, "b.Dz")
+                except Exception:
+                    pass
+                label = (label_el.text.strip() if label_el else tds[i].text.strip())
+                value_text = tds[i + 1].text.strip()
+                if label:
+                    label = " ".join(label.split())
+                    value_text = " ".join(value_text.split())
+                    data[label] = value_text
+                i += 2
+        return data
+
+    def extract_posicion_consolidada(self) -> list:
+        tbl = self.wait.until(EC.presence_of_element_located(self.TBL_POSICION))
+        trs = tbl.find_elements(By.CSS_SELECTOR, "tbody tr")
+        out = []
+        for tr in trs:
+            tds = tr.find_elements(By.CSS_SELECTOR, "td")
+            if len(tds) != 4:
+                continue
+            row = [" ".join(td.text.split()) for td in tds]
+            if row[0].upper() == "SALDOS":
+                continue
+            out.append(row)
+        return out
+
+    def logout_modulo(self):
+        link = self.wait.until(EC.element_to_be_clickable(self.LINK_SALIR_CRIESGOS))
+        link.click()
+        self.wait.until(EC.presence_of_element_located(self.BTN_SALIR_PORTAL))
+
+    def logout_portal(self):
+        btn = self.wait.until(EC.element_to_be_clickable(self.BTN_SALIR_PORTAL))
+        btn.click()
