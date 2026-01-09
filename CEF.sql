@@ -1,41 +1,4 @@
-He agregado mas valores a DESPRODUCTO y deberiamos modificar la logica en rbm_page.py no? 
-
-Esta es la nueva logica de los DESPRODUCTO cuando el PRODUCTO es CREDITO EFECTIVO
-    
-LIBRE DISPONIBILIDAD -> Venta CEF LD/RE
-COMPRA DE DEUDA      -> Venta CEF CdD   
-LD + CONSOLIDACION   -> Venta CEF LD/RE
-LD + COMPRA DE DUDA Y/O CONSOLIDACION -> Venta CEF CdD
-
-En pocas palabras, basta que haya compra de deuda en alguna variante y se toma compra de deuda
-
-Que deberia cambiar en mi script actual de mis archivos? 
-
-config/product_catalog.py
-# PRODUCTO -> lista de DESPRODUCTO
-PRODUCT_CATALOG = {
-    "CREDITO EFECTIVO": [
-        "LIBRE DISPONIBILIDAD",
-        "COMPRA DE DEUDA",
-        "LD + CONSOLIDACION",
-        "LD + COMPRA DE DUDA Y/O CONSOLIDACION",
-    ],
-    "TARJETA DE CREDITO": [
-        "TARJETA NUEVA",
-
-    ],
-}
-
-def list_productos() -> list[str]:
-    return sorted(PRODUCT_CATALOG.keys())
-
-def list_desproductos(producto: str) -> list[str]:
-    return PRODUCT_CATALOG.get(producto, [])
-
-
-
-pages/rbm/rbm_page.py
-
+# pages/rbm/rbm_page.py
 from __future__ import annotations
 
 import base64
@@ -382,7 +345,7 @@ class RbmPage(BasePage):
         logging.info("RBM extract_cem_3cols: %s", data)
         return data
 
-    # ===================== NUEVO: extracción de scores Consumos según PRODUCTO/DESPRODUCTO =====================
+    # ===================== extracción de scores Consumos según PRODUCTO/DESPRODUCTO =====================
 
     def _xpath_literal(self, s: str) -> str:
         """Escapa string para usarlo como literal en XPath."""
@@ -414,8 +377,8 @@ class RbmPage(BasePage):
         Reglas:
         - Si producto == 'CREDITO EFECTIVO':
             - C14 depende de DESPRODUCTO:
-                * 'LD/RE' -> 'Venta CEF LD/RE'
-                * 'COMPRA DEUDA' -> 'Venta CEF CdD'
+                * Si contiene 'COMPRA DE DEUDA' (en cualquier variante) -> 'Venta CEF CdD'
+                * Caso contrario -> 'Venta CEF LD/RE'
             - C83 siempre: 'Portafolio CEF (Score BHV)'
         - Si producto == 'TARJETA DE CREDITO':
             - C14: 'Venta TC Nueva'
@@ -424,17 +387,16 @@ class RbmPage(BasePage):
         self.wait_not_loading(timeout=40)
 
         p = (producto or "").strip().upper()
-        d = (desproducto or "").strip().upper()
+        d = " ".join((desproducto or "").strip().upper().split())  # normaliza espacios
 
         out = {"inicio_c14": None, "inicio_c83": None}
 
         if p == "CREDITO EFECTIVO":
-            if d == "LD/RE":
-                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
-            elif d == "COMPRA DEUDA":
+            # ✅ Nueva regla: basta que haya COMPRA DE DEUDA en cualquier variante
+            if "COMPRA DE DEUDA" in d:
                 out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF CdD")
             else:
-                out["inicio_c14"] = None
+                out["inicio_c14"] = self.extract_badge_by_label_contains("Venta CEF LD/RE")
 
             out["inicio_c83"] = self.extract_badge_by_label_contains("Portafolio CEF (Score BHV)")
 
@@ -444,4 +406,3 @@ class RbmPage(BasePage):
 
         logging.info("RBM extract_scores_por_producto: %s", out)
         return out
-
