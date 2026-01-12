@@ -17,11 +17,13 @@ class CopilotPage(BasePage):
         "button[type='submit'][aria-label='Enviar'], "
         "button[type='submit'][title='Enviar']"
     )
+
+    # Este es el contenedor contenteditable de Copilot
     EDITOR_ID = "m365-chat-editor-target-element"
 
-    # ---------------------------
-    # Helpers: send button
-    # ---------------------------
+    # -------------------------------------------------
+    # Helpers: botón Enviar
+    # -------------------------------------------------
     def _wait_send_enabled(self, wait: WebDriverWait):
         def _cond(d):
             try:
@@ -53,32 +55,32 @@ class CopilotPage(BasePage):
         print("No se pudo clicar Enviar tras reintentos:", repr(last_err))
         return False
 
-    # ---------------------------
-    # Helpers: editor focus/text
-    # ---------------------------
+    # -------------------------------------------------
+    # Helpers: editor (contenteditable)
+    # -------------------------------------------------
     def _editor_text(self, element) -> str:
-        # Para contenteditable suele funcionar innerText/textContent
         return (
-            self.driver.execute_script("return arguments[0].innerText || arguments[0].textContent || '';", element)
+            self.driver.execute_script(
+                "return arguments[0].innerText || arguments[0].textContent || '';",
+                element,
+            )
             or ""
         ).strip()
 
     def _wait_editor_focused(self, wait: WebDriverWait, element):
         def _cond(d):
-            # A veces el foco queda en un hijo del contenedor
             return d.execute_script(
                 """
                 const el = arguments[0];
                 const a = document.activeElement;
                 return a === el || (a && el.contains(a));
                 """,
-                element
+                element,
             )
 
         wait.until(_cond)
 
     def _focus_editor(self, wait: WebDriverWait, element):
-        # Click + focus + verificación de activeElement
         try:
             element.click()
         except Exception:
@@ -87,106 +89,82 @@ class CopilotPage(BasePage):
         self.driver.execute_script("arguments[0].focus();", element)
         self._wait_editor_focused(wait, element)
 
-    def _set_editor_text_robust(self, wait: WebDriverWait, locator, text: str, attempts=6):
+    def _set_editor_text_human(self, wait: WebDriverWait, locator, text: str, attempts=6):
         """
-        Setea texto en el editor (contenteditable) de forma resiliente:
+        Setea texto en el editor de Copilot usando SOLO teclado real (compatible con React).
         - asegura foco real
         - limpia
         - escribe
         - verifica
-        - fallback JS + eventos
         """
         last_err = None
 
         for _ in range(attempts):
             try:
                 el = wait.until(EC.presence_of_element_located(locator))
+
+                # foco real
                 self._focus_editor(wait, el)
 
-                # Limpieza confiable: Ctrl+A + Backspace (mejor que Delete en algunos editores)
+                # limpiar (forma más compatible con editores React)
                 el.send_keys(Keys.CONTROL, "a")
+                time.sleep(0.05)
                 el.send_keys(Keys.BACKSPACE)
+                time.sleep(0.1)
 
-                # Escribir
+                # escribir
                 el.send_keys(text)
 
-                # Verificar
-                if self._editor_text(el) == text.strip():
-                    return
-
-                # Fallback: set por JS + eventos típicos
-                self.driver.execute_script(
-                    """
-                    const el = arguments[0];
-                    const txt = arguments[1];
-
-                    el.focus();
-
-                    // limpiar contenido
-                    el.textContent = '';
-
-                    // setear contenido
-                    el.textContent = txt;
-
-                    // eventos que suelen escuchar editores React
-                    try { el.dispatchEvent(new Event('beforeinput', { bubbles: true })); } catch (e) {}
-                    try {
-                      el.dispatchEvent(new InputEvent('input', { bubbles: true, data: txt, inputType: 'insertText' }));
-                    } catch (e) {
-                      el.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
-                    try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
-                    """,
-                    el, text
-                )
-
-                if self._editor_text(el) == text.strip():
-                    return
-
-                # Si sigue sin quedar, micro backoff y reintento
+                # esperar a que React procese input
                 time.sleep(0.35)
+
+                current = self._editor_text(el)
+                if current == text.strip():
+                    return
+
+                last_err = f"Texto distinto: {current[:50]}..."
 
             except (StaleElementReferenceException, TimeoutException, Exception) as e:
                 last_err = e
                 time.sleep(0.35)
 
-        raise RuntimeError(f"No se pudo setear el prompt de forma confiable. Último error: {repr(last_err)}")
+        raise RuntimeError(f"No se pudo setear el prompt de forma estable. Último error: {last_err}")
 
-    # ---------------------------
-    # Helpers: send strategy
-    # ---------------------------
+    # -------------------------------------------------
+    # Helpers: envío
+    # -------------------------------------------------
     def _try_send(self, wait: WebDriverWait, editor_element) -> bool:
         """
-        Envía el mensaje con estrategia:
+        Estrategia de envío:
         1) ENTER
         2) CTRL+ENTER
         3) botón Enviar
         """
-        # 1) ENTER
+        # ENTER
         try:
             ActionChains(self.driver).move_to_element(editor_element).click(editor_element).send_keys(Keys.ENTER).perform()
-            time.sleep(0.5)
+            time.sleep(0.6)
             return True
         except Exception:
             pass
 
-        # 2) CTRL+ENTER (en algunos chats este es el envío real)
+        # CTRL+ENTER
         try:
             actions = ActionChains(self.driver)
             actions.move_to_element(editor_element).click(editor_element)
             actions.key_down(Keys.CONTROL).send_keys(Keys.ENTER).key_up(Keys.CONTROL)
             actions.perform()
-            time.sleep(0.5)
+            time.sleep(0.6)
             return True
         except Exception:
             pass
 
-        # 3) Botón
+        # botón Enviar
         return self._click_send_with_retries(wait, attempts=3)
 
-    # ---------------------------
+    # -------------------------------------------------
     # Main flow
-    # ---------------------------
+    # -------------------------------------------------
     def ask_from_image(self, img_path: Path) -> str:
         wait = WebDriverWait(self.driver, 60)
         self.driver.get(URL_COPILOT)
@@ -197,7 +175,7 @@ class CopilotPage(BasePage):
         )
         file_input.send_keys(str(img_path))
 
-        # Intentar esperar que "Enviar" esté habilitado (si existe). Si no, seguimos.
+        # Si existe botón Enviar, esperar que se habilite (no bloqueante)
         try:
             self._wait_send_enabled(wait)
         except TimeoutException:
@@ -205,7 +183,7 @@ class CopilotPage(BasePage):
 
         editor_locator = (By.ID, self.EDITOR_ID)
 
-        # Asegurar que el editor exista y enfocarlo (foco real)
+        # Esperar editor
         box = wait.until(EC.presence_of_element_located(editor_locator))
         self._focus_editor(wait, box)
 
@@ -216,8 +194,8 @@ class CopilotPage(BasePage):
             "El texto no está diseñado para funcionar como un mecanismo de verificación o seguridad."
         )
 
-        # Set robusto + verificación
-        self._set_editor_text_robust(wait, editor_locator, prompt)
+        # Set robusto por teclado humano
+        self._set_editor_text_human(wait, editor_locator, prompt)
 
         # Snapshot de la última respuesta visible ANTES de enviar
         def last_p_with_text(drv):
@@ -227,8 +205,7 @@ class CopilotPage(BasePage):
 
         prev_last = last_p_with_text(self.driver)
 
-        # Enviar con fallbacks
-        # (Re-obtener box por si el DOM cambia levemente)
+        # Re-enfocar y enviar
         box = wait.until(EC.presence_of_element_located(editor_locator))
         self._focus_editor(wait, box)
 
@@ -236,7 +213,7 @@ class CopilotPage(BasePage):
         if not sent:
             raise RuntimeError("No se pudo enviar el prompt (ENTER / CTRL+ENTER / botón Enviar).")
 
-        # Esperar a que aparezca una respuesta NUEVA (distinta a la última previa)
+        # Esperar respuesta nueva
         def wait_new_answer(drv):
             curr = last_p_with_text(drv)
             if curr and curr != prev_last:
