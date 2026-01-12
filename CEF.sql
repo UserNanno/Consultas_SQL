@@ -184,21 +184,33 @@ La respuesta debe contener únicamente:
 No incluyas explicaciones, comentarios ni texto adicional.
 
 
+FORMATO DE PRESENTACIÓN DE LA TABLA (OBLIGATORIO)
+
+La tabla final debe renderizarse visualmente como una tabla con filas y columnas claramente delimitadas, en formato de tabla estándar (grilla).
+
+No se permite formato CSV.
+No se permite texto separado por comas.
+No se permite lista.
+No se permite JSON.
+
+La tabla debe verse como una tabla similar a Excel o Word, con encabezados y filas.
+
+
 ESTRUCTURA DE TABLA FINAL (FORMATO OBLIGATORIO)
 
-DIRECTA , 31/12/{AÑO_1} , 31/12/{AÑO_2} , 31/12/{AÑO_3} , 30/{MES_DESEADO}/{AÑO_ACTUAL}
-TARJCRED , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-AVCTACTE , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-SOBCTACTE , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-CREDXCOMEXT , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-REVOLVENTE , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-CUOTAFIJA , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-DESCUENTOS , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-LSBACK , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-ARRENDFIN , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-REPROGRAMADO , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-REFINANCIADO , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-BIENINMGENREN , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-FACTORING , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-INMOBILIARIO , {VALOR} , {VALOR} , {VALOR} , {VALOR}
-TOTAL DE DEUDA EQUIFAX , {VALOR} , {VALOR} , {VALOR} , {VALOR}
+DIRECTA | 31/12/{AÑO_1} | 31/12/{AÑO_2} | 31/12/{AÑO_3} | 30/{MES_DESEADO}/{AÑO_ACTUAL}
+TARJCRED | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+AVCTACTE | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+SOBCTACTE | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+CREDXCOMEXT | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+REVOLVENTE | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+CUOTAFIJA | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+DESCUENTOS | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+LSBACK | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+ARRENDFIN | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+REPROGRAMADO | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+REFINANCIADO | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+BIENINMGENREN | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+FACTORING | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+INMOBILIARIO | {VALOR} | {VALOR} | {VALOR} | {VALOR}
+TOTAL DE DEUDA EQUIFAX | {VALOR} | {VALOR} | {VALOR} | {VALOR}
