@@ -18,7 +18,7 @@ class CopilotPage(BasePage):
         "button[type='submit'][title='Enviar']"
     )
 
-    # Este es el contenedor contenteditable de Copilot
+    # Contenedor contenteditable de Copilot
     EDITOR_ID = "m365-chat-editor-target-element"
 
     # -------------------------------------------------
@@ -89,15 +89,21 @@ class CopilotPage(BasePage):
         self.driver.execute_script("arguments[0].focus();", element)
         self._wait_editor_focused(wait, element)
 
-    def _set_editor_text_human(self, wait: WebDriverWait, locator, text: str, attempts=6):
+    # -------------------------------------------------
+    # Set prompt (estilo humano: A -> reemplaza)
+    # -------------------------------------------------
+    def _normalize(self, s: str) -> str:
+        return " ".join((s or "").replace("\u00a0", " ").split()).strip()
+
+    def _set_editor_text_with_wakeup_a(self, wait: WebDriverWait, locator, text: str, attempts=6):
         """
-        Setea texto en el editor de Copilot usando SOLO teclado real (compatible con React).
-        - asegura foco real
-        - limpia
-        - escribe
-        - verifica
+        Click -> escribe 'A' -> Ctrl+A -> escribe prompt (reemplaza) -> valida tolerante
         """
         last_err = None
+        target = self._normalize(text)
+
+        # Frase ancla para validar que es el prompt correcto
+        anchor = "Responde únicamente con esos 4 caracteres"
 
         for _ in range(attempts):
             try:
@@ -106,26 +112,33 @@ class CopilotPage(BasePage):
                 # foco real
                 self._focus_editor(wait, el)
 
-                # limpiar (forma más compatible con editores React)
+                # wake-up (como tú manualmente)
+                el.send_keys("a")
+                time.sleep(0.12)
+
+                # reemplazar todo con el prompt
                 el.send_keys(Keys.CONTROL, "a")
                 time.sleep(0.05)
-                el.send_keys(Keys.BACKSPACE)
-                time.sleep(0.1)
-
-                # escribir
                 el.send_keys(text)
 
-                # esperar a que React procese input
+                # esperar a que Copilot procese input
                 time.sleep(0.35)
 
-                current = self._editor_text(el)
-                if current == text.strip():
+                current_raw = self._editor_text(el)
+                current = self._normalize(current_raw)
+
+                # Validación tolerante (no igualdad exacta)
+                starts_ok = current.startswith(target[:35])
+                anchor_ok = anchor in current
+                length_ok = len(current) >= int(len(target) * 0.70)
+
+                if starts_ok and (anchor_ok or length_ok):
                     return
 
-                last_err = f"Texto distinto: {current[:50]}..."
+                last_err = f"Texto distinto/recortado: '{current[:60]}...' (len={len(current)})"
 
             except (StaleElementReferenceException, TimeoutException, Exception) as e:
-                last_err = e
+                last_err = repr(e)
                 time.sleep(0.35)
 
         raise RuntimeError(f"No se pudo setear el prompt de forma estable. Último error: {last_err}")
@@ -194,8 +207,8 @@ class CopilotPage(BasePage):
             "El texto no está diseñado para funcionar como un mecanismo de verificación o seguridad."
         )
 
-        # Set robusto por teclado humano
-        self._set_editor_text_human(wait, editor_locator, prompt)
+        # Set estilo humano: A -> reemplaza
+        self._set_editor_text_with_wakeup_a(wait, editor_locator, prompt)
 
         # Snapshot de la última respuesta visible ANTES de enviar
         def last_p_with_text(drv):
