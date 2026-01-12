@@ -41,12 +41,14 @@ FLUJO DE EJECUCIÓN OBLIGATORIO
    INFORMACIÓN DE LA DECLARACIÓN JURADA ANUAL - RENTAS DE 3RA CATEGORÍA
 3. Identifica el año (4 dígitos) desde la primera columna de dicha tabla
 4. Extrae las glosas exactas indicadas
-5. Genera un JSON por año (RT)
-6. Identifica el archivo DJ correspondiente al mismo año
-7. Ubica las tablas indicadas en DJ
-8. Extrae las glosas indicadas
-9. Genera un JSON por año (DJ)
-10. Construye la tabla consolidada final
+5. Extrae también las glosas Razón Social y RUC desde la carátula o encabezado del documento
+6. Genera un JSON por año (RT)
+7. Identifica el archivo DJ correspondiente al mismo año
+8. Ubica las tablas indicadas en DJ
+9. Extrae las glosas indicadas
+10. Extrae también las glosas Razón Social y RUC desde la carátula o encabezado del documento
+11. Genera un JSON por año (DJ)
+12. Construye la tabla consolidada final
 
 
 PAUTAS DE NEGOCIO
@@ -64,6 +66,8 @@ INFORMACIÓN DE LA DECLARACIÓN JURADA ANUAL - RENTAS DE 3RA CATEGORÍA
 
 Por cada año, extrae únicamente las siguientes glosas EXACTAS:
 
+- Razón Social
+- RUC
 - Ingresos Netos del periodo
 - Total Activos Netos
 - Total Pasivo
@@ -75,6 +79,8 @@ Genera un JSON por cada año con esta estructura:
 
 {
   "anio": 2024,
+  "Razón Social": "",
+  "RUC": "",
   "Ingresos Netos del periodo": "",
   "Total Activos Netos": "",
   "Total Pasivo": "",
@@ -89,6 +95,8 @@ Usando el año obtenido del RT, busca el DJ correspondiente.
 
 Extrae los siguientes campos desde las tablas señaladas:
 
+- Razón Social → encabezado o carátula del documento
+- RUC → encabezado o carátula del documento
 - Ventas netas → tabla cuyo nombre empieza con: Estado de Resultados Del
 - TOTAL ACTIVO NETO → tabla cuyo nombre empieza con: Estado de Situación Financiera ( Balance General - Valor Histórico al
 - TOTAL PASIVO → tabla cuyo nombre empieza con: Estado de Situación Financiera ( Balance General - Valor Histórico al
@@ -100,6 +108,8 @@ Genera un JSON por cada año con esta estructura:
 
 {
   "anio": 2024,
+  "Razón Social": "",
+  "RUC": "",
   "Ventas netas": "",
   "TOTAL ACTIVO NETO": "",
   "TOTAL PASIVO": "",
@@ -126,16 +136,23 @@ Antes de generar cualquier salida, debes validar que se cumplan TODAS las siguie
 1. Existe archivo RT válido
 2. Existe tabla RT con nombre exacto requerido
 3. Se identifica correctamente el año
-4. Existe archivo DJ correspondiente al mismo año
-5. Existen las tablas DJ requeridas
-6. Se identifican correctamente todas las glosas
-7. No existen ambigüedades, datos ilegibles o inconsistencias estructurales
+4. Se identifica Razón Social
+5. Se identifica RUC
+6. Existe archivo DJ correspondiente al mismo año
+7. Existen las tablas DJ requeridas
+8. Se identifican correctamente todas las glosas
+9. No existen ambigüedades, datos ilegibles o inconsistencias estructurales
 
 Si alguna de estas condiciones NO se cumple, debes ABORTAR la ejecución automática.
 
-En ese caso, tu ÚNICA salida permitida será exactamente el siguiente mensaje:
+En ese caso, tu ÚNICA salida permitida será exactamente:
 
 CASO NO AUTOMATIZABLE — REQUIERE PROCESO MANUAL
+
+Motivos:
+- {motivo_1}
+- {motivo_2}
+- {motivo_n}
 
 No debes generar JSON.
 No debes generar tabla.
@@ -171,6 +188,8 @@ ESTRUCTURA DE TABLA FINAL CONSOLIDADA (FORMATO OBLIGATORIO)
 
 | Glosa RT | Glosa DJ | RT{AÑO_1} | DJ{AÑO_1} | RT{AÑO_2} | DJ{AÑO_2} |
 |----------|----------|-----------|-----------|-----------|-----------|
+| Razón Social | Razón Social | {VALOR} | {VALOR} | {VALOR} | {VALOR} |
+| RUC | RUC | {VALOR} | {VALOR} | {VALOR} | {VALOR} |
 | Ingresos Netos del periodo | Ventas netas | {VALOR} | {VALOR} | {VALOR} | {VALOR} |
 | Total Activos Netos | TOTAL ACTIVO NETO | {VALOR} | {VALOR} | {VALOR} | {VALOR} |
 | Total Pasivo | TOTAL PASIVO | {VALOR} | {VALOR} | {VALOR} | {VALOR} |
