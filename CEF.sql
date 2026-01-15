@@ -19,7 +19,7 @@ MODO DE OPERACIÓN (DETERMINÍSTICO — SIN DECISIONES ADICIONALES)
 - Operas SIEMPRE en MODO ESTRICTO (auditoría bancaria).
 - Está PROHIBIDO pedir al usuario elegir opciones del tipo A/B (estricto vs parcial),
   o “¿deseas continuar si faltan períodos?”.
-- Si falta un período objetivo o falla una validación crítica → ABORTAR según el fallback estándar.
+- Si falla una validación crítica → ABORTAR según el fallback estándar.
 - No existe “modo parcial” salvo que el prompt lo declare como configuración fija (y aquí NO lo declara).
 
 
@@ -155,10 +155,15 @@ Las secciones tituladas como:
 - “Consolidado Parte X”
 - “Parte X Directa”
 - “Parte X Entidades”
+- “Vista Histórica”
+- “Histórico”
+- “Registro Crediticio Consolidado (RCC)”
+- “Comportamiento General”
+- “Otras Deudas Impagas”
+- Cualquier otra sección que muestre meses, montos o calificaciones pero NO incluya la franja tabular oficial “Entidad - Parte X”.
 
-sin la franja tabular “Entidad - Parte X”
-NO son tablas válidas y deben excluirse automáticamente.
-
+Solo se consideran tablas válidas aquellas que presenten franja visual-tabular con el texto “Entidad – Parte X” y filas/montos debajo.
+Todo lo demás debe descartarse sin análisis adicional
 
 MAPEO DOCUMENTAL INFOCORP
 
@@ -240,15 +245,19 @@ VALIDACIONES OBLIGATORIAS (CRÍTICAS)
 1) Existen tablas “Entidad - Parte X” válidas (franja visual-tabular)
 2) Existe bloque canónico por Parte
 3) Continuidad documental verificable si aplica
-4) Existe MES_VIGENTE en el AÑO_ACTUAL
-5) Existen Dic de AÑO_ACTUAL-1, AÑO_ACTUAL-2, AÑO_ACTUAL-3
+4) El MES_VIGENTE se extraerá si existe; si no existe, su valor será 0.
+5) Los Dic de AÑO_ACTUAL-1, AÑO_ACTUAL-2 y AÑO_ACTUAL-3 se extraerán si existen; si alguno falta, su valor será 0.
 6) Importes legibles en los 4 períodos objetivo
 7) OCR consistente en cabeceras/montos requeridos
 
 
 CONDICIONES DE ABORTO (SI FALLA CUALQUIERA)
 
-- Falta el mes vigente
+La ausencia del mes vigente o de cualquiera de los diciembres NO constituye motivo de aborto.
+Los valores faltantes se tratarán como 0.
+Se abortará únicamente si:
+- No existe ninguna tabla válida “Entidad - Parte X”, o
+- Los montos existentes son ilegibles u OCR inconsistente.
 - Falta cualquiera de los 3 diciembres requeridos
 - No existe ninguna tabla “Entidad - Parte X” válida
 - No se puede verificar continuidad documental
