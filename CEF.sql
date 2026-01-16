@@ -1,339 +1,168 @@
-# services/sbs_flow.py
+
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Tuple
 import logging
 
-from selenium.common.exceptions import TimeoutException
-
-from pages.sbs.cerrar_sesiones_page import CerrarSesionesPage
-from pages.sbs.login_page import LoginPage
-from pages.sbs.riesgos_page import RiesgosPage
-from pages.copilot_page import CopilotPage
-from services.copilot_service import CopilotService
-from config.settings import URL_LOGIN
+from openpyxl import load_workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
+from openpyxl.utils import get_column_letter
+from PIL import Image as PILImage
 
 
-class SbsFlow:
-    # Pre-step debe correr SOLO una vez por ejecución del proceso
-    _prestep_done: bool = False
+class XlsmSessionWriter:
+    """
+    Abre un XLSM (plantilla) una sola vez, permite insertar múltiples imágenes
+    en distintas hojas/rangos, y guarda al final.
+    Preserva macros con keep_vba=True.
+    """
 
-    # Textos del error de captcha (pantalla HTML que pegaste)
-    _CAPTCHA_ERR_1 = "La aplicación ha generado un error al validar el ingreso del usuario"
-    _CAPTCHA_ERR_2 = "El código ingresado, no coincide con el código mostrado en la imagen"
+    def __init__(self, template_xlsm: Path):
+        self.template_xlsm = Path(template_xlsm)
+        self.wb = None
+        self._opened = False
 
-    def __init__(self, driver, usuario: str, clave: str):
-        self.driver = driver
-        self.usuario = usuario
-        self.clave = clave
+    def __enter__(self):
+        self.open()
+        return self
 
-    # =========================
-    # PRE-STEP: cerrar sesiones
-    # =========================
-    def _pre_cerrar_sesion_activa(self):
-        logging.info("[SBS] Pre-step: cerrar sesión activa (cerrarSesiones.jsf)")
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
 
-        try:
-            self.driver.delete_all_cookies()
-        except Exception:
-            pass
+    def open(self):
+        if self._opened:
+            return
+        if not self.template_xlsm.exists():
+            raise FileNotFoundError(f"No existe la plantilla: {self.template_xlsm}")
+        # Preserva macros
+        self.wb = load_workbook(self.template_xlsm, keep_vba=True)
+        self._opened = True
 
-        page = CerrarSesionesPage(self.driver)
-        page.open()
-        outcome = page.cerrar_sesion(self.usuario, self.clave)
+    def close(self):
+        self.wb = None
+        self._opened = False
 
-        if outcome == "CERRADA":
-            logging.info("[SBS] Pre-step OK: sesión activa cerrada")
-        else:
-            logging.info("[SBS] Pre-step OK: no existían sesiones activas (continuar)")
-
-    # ==========================================
-    # LOGIN ROBUSTO: retry si captcha es inválido
-    # ==========================================
-    def _is_captcha_error_page(self) -> bool:
-        try:
-            body_txt = (self.driver.find_element("tag name", "body").text or "")
-            return (self._CAPTCHA_ERR_1 in body_txt) or (self._CAPTCHA_ERR_2 in body_txt)
-        except Exception:
-            return False
-
-    def _login_with_retry(self, captcha_img_path: Path, max_attempts: int = 3):
-        """
-        Reintenta SOLO el login de SBS cuando sale la pantalla:
-        'El código ingresado, no coincide con el código mostrado en la imagen...'
-
-        Éxito = aparece un elemento post-login.
-        Usamos RiesgosPage.LINK_MODULO como "success locator" porque tu flujo lo usa justo después.
-        """
-        login_page = LoginPage(self.driver)
-        riesgos = RiesgosPage(self.driver)
-
-        success_locator = riesgos.LINK_MODULO  # post-login
-
-        for attempt in range(1, max_attempts + 1):
-            logging.info("[SBS] Login attempt %s/%s", attempt, max_attempts)
-
-            # 1) Ir al login SIEMPRE limpio
-            self.driver.get(URL_LOGIN)
-
-            # 2) Capturar captcha
-            logging.info("[SBS] Capturar captcha (attempt %s)", attempt)
-            login_page.capture_image(captcha_img_path)
-
-            # 3) Resolver captcha con Copilot en nueva pestaña y cerrarla
-            original_handle = self.driver.current_window_handle
-            self.driver.switch_to.new_window("tab")
-            try:
-                copilot = CopilotService(CopilotPage(self.driver))
-                logging.info("[SBS] Resolver captcha con Copilot (attempt %s)", attempt)
-                captcha = copilot.resolve_captcha(captcha_img_path)
-            finally:
-                try:
-                    self.driver.close()
-                except Exception:
-                    pass
-                self.driver.switch_to.window(original_handle)
-
-            # 4) Llenar form + click ingresar
-            logging.info("[SBS] Enviar login (attempt %s)", attempt)
-            login_page.fill_form(self.usuario, self.clave, captcha)
-
-            # 5) Outcome: o aparece post-login, o aparece pantalla de error captcha
-            #    Hacemos "race" simple con wait por polling:
-            from selenium.webdriver.support.ui import WebDriverWait
-
-            def _outcome(d):
-                if self._is_captcha_error_page():
-                    return "CAPTCHA_ERROR"
-                try:
-                    d.find_element(*success_locator)
-                    return "SUCCESS"
-                except Exception:
-                    return False
-
-            try:
-                outcome = WebDriverWait(self.driver, 18).until(_outcome)
-            except TimeoutException:
-                outcome = "UNKNOWN"
-
-            if outcome == "SUCCESS":
-                logging.info("[SBS] Login OK")
-                return
-
-            if outcome == "CAPTCHA_ERROR":
-                logging.warning("[SBS] Captcha incorrecto detectado. Reintentando...")
-                continue
-
-            logging.warning("[SBS] Outcome UNKNOWN (no éxito/no captcha error). Reintentando...")
-
-        raise RuntimeError("No se pudo iniciar sesión en SBS: captcha falló en todos los intentos.")
-
-    # ==========
-    # RUN PRINCIPAL
-    # ==========
-    def run(
+    def add_image_to_range(
         self,
-        dni: str,
-        captcha_img_path: Path,
-        detallada_img_path: Path,
-        otros_img_path: Path,
-    ) -> dict:
-        # ==========================================================
-        # 0) PRE-STEP: Cerrar sesión activa (SOLO 1 VEZ POR EJECUCIÓN)
-        # ==========================================================
-        if not SbsFlow._prestep_done:
-            try:
-                self._pre_cerrar_sesion_activa()
-                SbsFlow._prestep_done = True
-            except Exception as e:
-                logging.warning("[SBS] Pre-step cerrar sesión falló, se continúa igual. Detalle=%r", e)
-        else:
-            logging.info("[SBS] Pre-step omitido (ya se ejecutó en esta corrida)")
+        sheet_name: str,
+        img_path: Path,
+        anchor_cell: str,
+        bottom_right_cell: str,
+        scale_up: bool = False,
+    ):
+        """
+        Inserta una imagen anclada en anchor_cell, redimensionada para encajar dentro
+        del rango anchor_cell:bottom_right_cell.
 
-        # ==========================================================
-        # 1) LOGIN con retry por captcha inválido
-        # ==========================================================
-        self._login_with_retry(captcha_img_path=captcha_img_path, max_attempts=3)
+        Parámetros:
+        - sheet_name: Nombre de la hoja destino.
+        - img_path: Ruta de la imagen a insertar.
+        - anchor_cell: Celda superior izquierda (ej. "B3").
+        - bottom_right_cell: Celda inferior derecha (ej. "F10").
+        - scale_up: Si False, no se amplían imágenes pequeñas (recomendado).
+        """
+        if not self._opened or self.wb is None:
+            raise RuntimeError("XlsmSessionWriter no está abierto. Usa open() o with ... as writer")
 
-        # ==========================================================
-        # 2) Flujo SBS normal (igual que tu versión)
-        # ==========================================================
-        riesgos = RiesgosPage(self.driver)
+        if sheet_name not in self.wb.sheetnames:
+            raise ValueError(f"No existe la hoja '{sheet_name}'. Hojas: {self.wb.sheetnames}")
 
-        logging.info("[SBS] Abrir módulo deuda")
-        riesgos.open_modulo_deuda()
+        img_path = Path(img_path)
+        if not img_path.exists():
+            raise FileNotFoundError(f"No existe la imagen: {img_path}")
 
-        logging.info("[SBS] Consultar DNI=%s", dni)
-        riesgos.consultar_por_dni(dni)
+        ws = self.wb[sheet_name]
 
-        # ==========================================================
-        # 1.A0) CAMINO "SIN SALDOS" / "SOLO OTROS REPORTES"
-        # ==========================================================
-        if (not riesgos.detallada_habilitada()) and (not riesgos.historica_habilitada()) and riesgos.otros_reportes_habilitado():
-            if riesgos.mensaje_no_saldos():
-                logging.warning(
-                    "[SBS] Modo SIN_SALDOS/SOLO_OTROS: no hay Posición Consolidada; se omite Detallada y se va directo a Otros Reportes."
-                )
+        target_w_px, target_h_px = self._range_size_pixels(ws, anchor_cell, bottom_right_cell)
+        resized_path = self._resize_to_fit(img_path, target_w_px, target_h_px, scale_up=scale_up)
 
-                datos_deudor = {}
-                try:
-                    datos_deudor = riesgos.extract_datos_deudor()
-                except Exception as e:
-                    logging.warning("[SBS] No se pudo extraer Datos del Deudor (SIN_SALDOS): %r", e)
+        # Insertar imagen anclada en la celda
+        ws.add_image(XLImage(str(resized_path)), anchor_cell)
 
-                # Evidencia del consolidado (con el mensaje). Reusamos detallada_img_path para no romper Excel.
-                try:
-                    riesgos.screenshot_contenido(str(detallada_img_path))
-                except Exception:
-                    try:
-                        self.driver.save_screenshot(str(detallada_img_path))
-                    except Exception:
-                        pass
+    def save(self, out_path: Path):
+        """
+        Guarda el libro en la ruta indicada.
+        Protección: no permite sobrescribir la plantilla original .xlsm.
+        """
+        if not self._opened or self.wb is None:
+            raise RuntimeError("XlsmSessionWriter no está abierto. Usa open() o with ... as writer")
 
-                # Ir a Otros Reportes y mantener lógica no bloqueante
-                try:
-                    riesgos.go_otros_reportes()
+        out_path = Path(out_path)
+        # Protección: nunca guardar sobre la plantilla
+        if out_path.resolve() == self.template_xlsm.resolve():
+            raise ValueError("No se permite guardar sobre la plantilla Macro.xlsm. Usa un archivo de salida.")
 
-                    disponible = riesgos.otros_reportes_disponible()
-                    logging.info("[SBS] Otros Reportes disponible=%s (SIN_SALDOS)", disponible)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        self.wb.save(out_path)
 
-                    loaded = riesgos.click_carteras_transferidas()
-                    logging.info("[SBS] Carteras Transferidas loaded=%s (SIN_SALDOS)", loaded)
+    # ---------------- helpers ----------------
+    def _resize_to_fit(self, img_path: Path, max_w: int, max_h: int, scale_up: bool) -> Path:
+        """
+        Redimensiona la imagen para que quepa en (max_w x max_h) manteniendo proporción.
+        Si scale_up=False, no se escala por encima del tamaño original.
+        Guarda PNG temporal junto a la imagen original.
+        """
+        out_path = img_path.with_name(img_path.stem + "_resized.png")
+        with PILImage.open(img_path) as im:
+            w, h = im.size
+            if w <= 0 or h <= 0:
+                raise ValueError("Imagen con tamaño inválido")
 
-                    if loaded and riesgos.has_carteras_table():
-                        riesgos.expand_all_rectificaciones(expected=2)
+            scale = min(max_w / w, max_h / h)
+            if not scale_up:
+                scale = min(scale, 1.0)
 
-                    riesgos.screenshot_contenido(str(otros_img_path))
+            new_w = max(1, int(w * scale))
+            new_h = max(1, int(h * scale))
 
-                except Exception as e:
-                    logging.warning("[SBS] Otros Reportes falló (SIN_SALDOS): %r", e)
-                    try:
-                        riesgos.screenshot_contenido(str(otros_img_path))
-                    except Exception:
-                        pass
+            im2 = im.resize((new_w, new_h), PILImage.LANCZOS)
+            im2.save(out_path)
 
-                # Logout y retorno parcial
-                try:
-                    logging.info("[SBS] Logout módulo")
-                    riesgos.logout_modulo()
-                    logging.info("[SBS] Logout portal")
-                    riesgos.logout_portal()
-                except Exception:
-                    pass
+        return out_path
 
-                logging.info("[SBS] Fin flujo OK (modo SIN_SALDOS)")
-                return {
-                    "datos_deudor": datos_deudor,
-                    "posicion": [],  # no existe posición consolidada en este caso
-                    "modo": "SIN_SALDOS",
-                }
+    def _range_size_pixels(self, ws, top_left: str, bottom_right: str) -> Tuple[int, int]:
+        """
+        Calcula el tamaño en píxeles del rango top_left:bottom_right considerando
+        los anchos de columnas y alturas de filas actuales del Worksheet.
+        Se aplica un pequeño margen interno.
+        """
+        tl_col_letter, tl_row = coordinate_from_string(top_left)
+        br_col_letter, br_row = coordinate_from_string(bottom_right)
 
-        # ==========================================================
-        # 1.A) CAMINO "HISTORICA" (Detallada NO habilitada)
-        # ==========================================================
-        if (not riesgos.detallada_habilitada()) and riesgos.historica_habilitada():
-            logging.warning(
-                "[SBS] Modo HISTORICA: Detallada no está habilitada. Se captura evidencia y se continúa sin Posición Consolidada."
-            )
+        tl_col = column_index_from_string(tl_col_letter)
+        br_col = column_index_from_string(br_col_letter)
 
-            # Asegurar que estamos en Histórica
-            try:
-                riesgos.go_historica()
-            except Exception:
-                pass
+        # Ancho total sumando columnas (aprox. conversión de ancho de Excel a px)
+        total_w_px = 0
+        for c in range(tl_col, br_col + 1):
+            col_letter = get_column_letter(c)
+            col_dim = ws.column_dimensions.get(col_letter)
+            # Valor por defecto de Excel ~8.43 (caracteres)
+            width_chars = float(col_dim.width) if (col_dim and col_dim.width is not None) else 8.43
+            # Conversión típica: ~7 px por carácter + ~5 px de padding
+            total_w_px += int(width_chars * 7 + 5)
 
-            # En Histórica sí existe "Datos del Deudor" -> lo extraemos si se puede
-            datos_deudor = {}
-            try:
-                datos_deudor = riesgos.extract_datos_deudor()
-            except Exception as e:
-                logging.warning("[SBS] No se pudo extraer Datos del Deudor en Histórica: %r", e)
+        # Alto total sumando filas (altura en puntos -> px con 96 DPI)
+        total_h_px = 0
+        for r in range(tl_row, br_row + 1):
+            row_dim = ws.row_dimensions.get(r)
+            height_pt = float(row_dim.height) if (row_dim and row_dim.height is not None) else 15.0
+            total_h_px += int(height_pt * 96 / 72)
 
-            # Evidencia principal (guardamos en detallada_img_path aunque sea Histórica)
-            try:
-                riesgos.screenshot_contenido(str(detallada_img_path))
-            except Exception:
-                try:
-                    self.driver.save_screenshot(str(detallada_img_path))
-                except Exception:
-                    pass
-
-            # Intentar Otros Reportes (puede estar habilitado)
-            try:
-                riesgos.go_otros_reportes()
-                disponible = riesgos.otros_reportes_disponible()
-                logging.info("[SBS] Otros Reportes disponible=%s (modo Histórica)", disponible)
-
-                loaded = riesgos.click_carteras_transferidas()
-                logging.info("[SBS] Carteras Transferidas loaded=%s (modo Histórica)", loaded)
-
-                if loaded and riesgos.has_carteras_table():
-                    riesgos.expand_all_rectificaciones(expected=2)
-
-                riesgos.screenshot_contenido(str(otros_img_path))
-            except Exception as e:
-                logging.warning("[SBS] Otros Reportes falló en modo Histórica: %r", e)
-                try:
-                    riesgos.screenshot_contenido(str(otros_img_path))
-                except Exception:
-                    pass
-
-            # Logout y retorno parcial
-            try:
-                logging.info("[SBS] Logout módulo")
-                riesgos.logout_modulo()
-                logging.info("[SBS] Logout portal")
-                riesgos.logout_portal()
-            except Exception:
-                pass
-
-            logging.info("[SBS] Fin flujo OK (modo HISTORICA)")
-            return {
-                "datos_deudor": datos_deudor,
-                "posicion": [],  # no hay posición consolidada
-                "modo": "HISTORICA",
-            }
-
-        # ==========================================================
-        # 1.B) CAMINO NORMAL (Consolidado -> Detallada -> Otros Reportes)
-        # ==========================================================
-        logging.info("[SBS] Extraer datos (modo normal)")
-        datos_deudor = riesgos.extract_datos_deudor()
-        posicion = riesgos.extract_posicion_consolidada()
-
-        logging.info("[SBS] Ir a Detallada + screenshot")
-        riesgos.go_detallada()
-        self.driver.save_screenshot(str(detallada_img_path))
-
-        logging.info("[SBS] Ir a Otros Reportes")
-        riesgos.go_otros_reportes()
-
-        logging.info("[SBS] Intentar Carteras Transferidas (no bloqueante)")
-        try:
-            disponible = riesgos.otros_reportes_disponible()
-            logging.info("[SBS] Otros Reportes disponible=%s", disponible)
-
-            loaded = riesgos.click_carteras_transferidas()
-            logging.info("[SBS] Carteras Transferidas loaded=%s", loaded)
-
-            if loaded and riesgos.has_carteras_table():
-                logging.info("[SBS] Expandir rectificaciones (si hay)")
-                riesgos.expand_all_rectificaciones(expected=2)
-
-            logging.info("[SBS] Screenshot contenido (rápido + fallback)")
-            riesgos.screenshot_contenido(str(otros_img_path))
-
-        except Exception as e:
-            logging.exception("[SBS] Error en Otros Reportes/Carteras: %r", e)
-            riesgos.screenshot_contenido(str(otros_img_path))
-
-        logging.info("[SBS] Logout módulo")
-        riesgos.logout_modulo()
-
-        logging.info("[SBS] Logout portal")
-        riesgos.logout_portal()
-
-        logging.info("[SBS] Fin flujo OK (modo normal)")
-        return {
-            "datos_deudor": datos_deudor,
-            "posicion": posicion,
-            "modo": "NORMAL",
-        }
+        # margen pequeño para evitar que toque bordes
+        return max(50, total_w_px - 10), max(50, total_h_px - 10)
+    
+    
+    def write_cell(self, sheet_name: str, cell: str, value):
+       """
+       Escribe un valor en una celda específica.
+       """
+       if not self._opened or self.wb is None:
+           raise RuntimeError("XlsmSessionWriter no está abierto. Usa open() o with ... as writer")
+       if sheet_name not in self.wb.sheetnames:
+           raise ValueError(f"No existe la hoja '{sheet_name}'. Hojas: {self.wb.sheetnames}")
+       ws = self.wb[sheet_name]
+       ws[cell].value = value
+       logging.info("XLSM write_cell: %s!%s = %r", sheet_name, cell, value)
