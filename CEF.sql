@@ -1,19 +1,3 @@
-<body>
-<b>La aplicación ha generado un error al validar el ingreso del usuario</b>
-<p><font color="red">El código ingresado, no coincide con el código mostrado en la imagen.<br>Vuelva a intentarlo.</font></p>
-<a href="/app/login.jsp">&lt;&lt; Regresar</a>
-
-</body>
-
-
-
-
-
-
-
-
-    
-
 pages/sbs/cerrar_sesiones_page.py
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
