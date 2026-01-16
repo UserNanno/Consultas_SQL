@@ -1,6 +1,3 @@
-Este es mi main.py
-que debo agregar, dame el script compelto
-
 from __future__ import annotations
 from pathlib import Path
 import os
@@ -21,6 +18,80 @@ from services.rbm_flow import RbmFlow
 from services.xlsm_session_writer import XlsmSessionWriter
 from utils.logging_utils import setup_logging
 from utils.decorators import log_exceptions
+
+
+# =============================================================================
+# POST-PROCESO EXCEL (COM) PARA DISPARAR TRIGGERS DE LISTAS DESPLEGABLES
+# (sin tocar VBA). Requiere Excel instalado + pywin32.
+# =============================================================================
+def _apply_excel_triggers_inicio(
+    xlsm_path: Path,
+    producto_c4: Optional[str],
+    segmento: Optional[str],
+    segmento_riesgo: Optional[str],
+    pdh: Optional[str],
+    sheet_name: str = "Inicio",
+):
+    """
+    Abre el XLSM con Excel real vía COM para que se ejecuten eventos/macros
+    existentes del archivo (Worksheet_Change, etc.).
+
+    Truco: clear + set de celdas (simula selección del desplegable).
+    """
+    xlsm_path = Path(xlsm_path)
+    if not xlsm_path.exists():
+        raise FileNotFoundError(f"No existe XLSM para post-proceso: {xlsm_path}")
+
+    try:
+        import win32com.client as win32  # type: ignore
+    except Exception as e:
+        logging.warning(
+            "[XLSM] No se pudo importar win32com (pywin32). "
+            "Se omite post-proceso de triggers. Detalle=%r",
+            e,
+        )
+        return
+
+    logging.info("[XLSM] Post-proceso Excel(COM) para triggers en %s", xlsm_path)
+
+    xl = win32.DispatchEx("Excel.Application")
+    xl.Visible = False
+    xl.DisplayAlerts = False
+
+    # CLAVE: permitir que se disparen eventos
+    xl.EnableEvents = True
+
+    wb = xl.Workbooks.Open(str(xlsm_path))
+    try:
+        ws = wb.Worksheets(sheet_name)
+
+        def set_cell(addr: str, value):
+            if value is None:
+                return
+            ws.Range(addr).Value = ""
+            ws.Range(addr).Value = value
+
+        # 🔥 Orden recomendado: primero producto, luego segmentación
+        set_cell("C4", producto_c4)
+        set_cell("C11", segmento)
+        set_cell("C12", segmento_riesgo)
+        set_cell("C13", pdh)
+
+        # Por si hay fórmulas/condicionales dependientes
+        xl.CalculateFull()
+
+        wb.Save()
+        logging.info("[XLSM] Triggers aplicados: %s!C4,C11:C13", sheet_name)
+
+    finally:
+        try:
+            wb.Close(SaveChanges=True)
+        except Exception:
+            pass
+        try:
+            xl.Quit()
+        except Exception:
+            pass
 
 
 def _get_app_dir() -> Path:
@@ -57,7 +128,6 @@ def _safe_filename_part(s: str) -> str:
     invalid = '<>:"/\\|?*'
     for ch in invalid:
         s = s.replace(ch, "")
-    # reduce espacios
     s = s.replace(" ", "")
     return s
 
@@ -83,7 +153,6 @@ def run_app(
     )
     logging.info("APP_DIR=%s", app_dir)
 
-    # Aunque UI/Controller validen, protegemos el motor
     if not (numoportunidad or "").strip():
         raise ValueError("NUMOPORTUNIDAD es obligatorio.")
     if not (producto or "").strip():
@@ -91,13 +160,11 @@ def run_app(
     if not (desproducto or "").strip():
         raise ValueError("DESPRODUCTO es obligatorio.")
 
-    # ====== MATANALISTA persistente (obligatorio) ======
     matanalista = load_matanalista("").strip()
     if not matanalista:
         raise ValueError("No hay MATANALISTA configurado. Ve al botón 'MATANALISTA' y guárdalo.")
     logging.info("MATANALISTA runtime=%s", matanalista)
 
-    # ====== CREDENCIALES SBS DESDE GUI (LOCALAPPDATA) ======
     sbs_user, sbs_pass = load_sbs_credentials("", "")
     if not sbs_user or not sbs_pass:
         raise ValueError("No hay credenciales SBS configuradas. Ve a 'Credenciales SBS' y guárdalas.")
@@ -113,7 +180,6 @@ def run_app(
             raise FileNotFoundError(f"No se encontró Macro.xlsm junto al ejecutable: {macro_path}")
 
         results_dir = _pick_results_dir(app_dir)
-
         dni_conyuge = (dni_conyuge or "").strip() or None
 
         safe_numop = _safe_filename_part(numoportunidad)
@@ -139,9 +205,7 @@ def run_app(
         logging.info("RESULTS_DIR=%s", results_dir)
         logging.info("OUTPUT_XLSM=%s", out_xlsm)
 
-        # ==========================================================
         # 1) SBS TITULAR
-        # ==========================================================
         logging.info("== FLUJO SBS (TITULAR) INICIO ==")
         _ = SbsFlow(driver, sbs_user, sbs_pass).run(
             dni=dni_titular,
@@ -151,9 +215,7 @@ def run_app(
         )
         logging.info("== FLUJO SBS (TITULAR) FIN ==")
 
-        # ==========================================================
-        # 1.1) SBS CONYUGE (opcional)
-        # ==========================================================
+        # 1.1) SBS CONYUGE
         if dni_conyuge:
             logging.info("== FLUJO SBS (CONYUGE) INICIO ==")
             _ = SbsFlow(driver, sbs_user, sbs_pass).run(
@@ -164,9 +226,7 @@ def run_app(
             )
             logging.info("== FLUJO SBS (CONYUGE) FIN ==")
 
-        # ==========================================================
         # 2) SUNAT TITULAR
-        # ==========================================================
         logging.info("== FLUJO SUNAT (TITULAR) INICIO ==")
         try:
             driver.delete_all_cookies()
@@ -175,9 +235,7 @@ def run_app(
         SunatFlow(driver).run(dni=dni_titular, out_img_path=sunat_img_path)
         logging.info("== FLUJO SUNAT (TITULAR) FIN ==")
 
-        # ==========================================================
         # 3) RBM TITULAR
-        # ==========================================================
         logging.info("== FLUJO RBM (TITULAR) INICIO ==")
         rbm_titular = RbmFlow(driver).run(
             dni=dni_titular,
@@ -195,9 +253,7 @@ def run_app(
         logging.info("RBM titular scores=%s", rbm_scores_tit)
         logging.info("== FLUJO RBM (TITULAR) FIN ==")
 
-        # ==========================================================
-        # 4) RBM CONYUGE (opcional, en nueva pestaña)
-        # ==========================================================
+        # 4) RBM CONYUGE
         rbm_inicio_cony = {}
         rbm_cem_cony = {}
         if dni_conyuge:
@@ -230,10 +286,7 @@ def run_app(
             logging.info("RBM conyuge cem=%s", rbm_cem_cony)
             logging.info("== FLUJO RBM (CONYUGE) FIN ==")
 
-        # ==========================================================
-        # 5) Escribir todo en XLSM
-        #    (AHORA SÍ escribimos Inicio!C4 + scores C14/C83 según producto)
-        # ==========================================================
+        # 5) Escribir XLSM (openpyxl)
         logging.info("== ESCRITURA XLSM INICIO ==")
 
         cem_row_map = [
@@ -256,30 +309,25 @@ def run_app(
             producto_excel_c4 = "Tarjeta de Credito"
 
         with XlsmSessionWriter(macro_path) as writer:
-            # NUEVO: C4 "selección" en plantilla
             if producto_excel_c4:
                 writer.write_cell("Inicio", "C4", producto_excel_c4)
 
-            # Campos Inicio existentes
             writer.write_cell("Inicio", "C11", rbm_inicio_tit.get("segmento"))
             writer.write_cell("Inicio", "C12", rbm_inicio_tit.get("segmento_riesgo"))
             writer.write_cell("Inicio", "C13", rbm_inicio_tit.get("pdh"))
             writer.write_cell("Inicio", "C15", rbm_inicio_tit.get("score_rcc"))
 
-            # NUEVO: scores RBM a Inicio!C14 y C83
             if rbm_scores_tit.get("inicio_c14") is not None:
                 writer.write_cell("Inicio", "C14", rbm_scores_tit.get("inicio_c14"))
             if rbm_scores_tit.get("inicio_c83") is not None:
                 writer.write_cell("Inicio", "C83", rbm_scores_tit.get("inicio_c83"))
 
-            # CEM titular
             for key, row in cem_row_map:
                 item = rbm_cem_tit.get(key, {}) or {}
                 writer.write_cell("Inicio", f"C{row}", item.get("cuota_bcp", 0))
                 writer.write_cell("Inicio", f"D{row}", item.get("cuota_sbs", 0))
                 writer.write_cell("Inicio", f"E{row}", item.get("saldo_sbs", 0))
 
-            # Conyuge (si aplica)
             if dni_conyuge:
                 writer.write_cell("Inicio", "D11", rbm_inicio_cony.get("segmento"))
                 writer.write_cell("Inicio", "D12", rbm_inicio_cony.get("segmento_riesgo"))
@@ -291,7 +339,6 @@ def run_app(
                     writer.write_cell("Inicio", f"H{row}", item.get("cuota_sbs", 0))
                     writer.write_cell("Inicio", f"I{row}", item.get("saldo_sbs", 0))
 
-            # Imágenes
             writer.add_image_to_range("SBS", detallada_img_path, "C64", "Z110")
             writer.add_image_to_range("SBS", otros_img_path, "C5", "Z50")
             if dni_conyuge:
@@ -307,6 +354,16 @@ def run_app(
                 writer.add_image_to_range("RBM", rbm_cem_cony_path, "AI64", "AY106")
 
             writer.save(out_xlsm)
+
+        # 5.1) Post-proceso: disparar triggers (Producto + Segmentación)
+        _apply_excel_triggers_inicio(
+            out_xlsm,
+            producto_excel_c4,
+            rbm_inicio_tit.get("segmento"),
+            rbm_inicio_tit.get("segmento_riesgo"),
+            rbm_inicio_tit.get("pdh"),
+            sheet_name="Inicio",
+        )
 
         logging.info("== ESCRITURA XLSM FIN ==")
         logging.info("XLSM final generado: %s", out_xlsm.resolve())
@@ -337,18 +394,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-Y asi empaqueto con pyinstaller:
-
-
-
-pyinstaller --onefile --noconsole ^
- --name PrismaProject ^
- --collect-all selenium ^
- --collect-all openpyxl ^
- --collect-all PIL ^
- --hidden-import openpyxl.cell._writer ^
- --add-binary "D:\Datos de Usuarios\T72496\Desktop\PrismaProject\venv\Lib\site-packages\selenium\webdriver\common\windows\selenium-manager.exe;selenium\webdriver\common\windows" ^
- app\gui_app.py
