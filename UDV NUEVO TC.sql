@@ -14,7 +14,7 @@ BEGIN
     END IF;
 
     SET v_sql = '
-    INSERT OVERWRITE TABLE catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SOLICITUDES_HIST
+    INSERT OVERWRITE TABLE catalog_lhcl_prod_bcp.bcp_edv_rbmbdn.T72496_SOLICITUDES_HIST
     PARTITION (CODMES=' || CAST(v_mes AS STRING) || ')
     WITH
     PARAMS AS (
@@ -458,3 +458,10 @@ BEGIN
 
   END LOOP bucle;
 END;
+
+
+
+[PARSE_SYNTAX_ERROR] Syntax error at or near 'A'. SQLSTATE: 42601
+== SQL (line 444, position 5) ==
+    EXECUTE IMMEDIATE v_sql;
+    ^^^^^^^^^^^^^^^^^^^^^^^
