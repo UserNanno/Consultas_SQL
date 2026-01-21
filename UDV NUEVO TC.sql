@@ -1,92 +1,53 @@
-WITH
-MD_EVALUACIONSOLICITUDCREDITO AS (
-	SELECT
-		CODEVALUACIONSOLICITUD,
-		CODIDEVALUACION,
-		FECEVALUACION,
-		CODINTERNOCOMPUTACIONAL,
-		NUMSOLICITUDEVALUACION,
-		CODSECUENCIALDECISIONRBM,
-		DESDECISIONEVALUACION,
-		DESREGLAPAUTA,
-		DESTIPDECISIONRESULTADORBM,
-		DESEVALUACION,
-		MTOCEMEVALUACION,
-		DESCAMPANIASOLICITUD,
-		DESTIPEVALUACIONSOLICITUDCREDITO,
-		DESCANALVENTARBMPER,
-		(CASE
-			WHEN DESCANALVENTARBMPER = 'SALEFORCE' THEN SUBSTR(TRIM(NUMSOLICITUDEVALUACION), 5, 7)
-			WHEN DESCANALVENTARBMPER = 'LOANS' THEN SUBSTR(TRIM(NUMSOLICITUDEVALUACION), 3, 8)
-			ELSE TRIM(NUMSOLICITUDEVALUACION)
-		END) AS NUMSOLICITUDCORTO,
-		(CASE
-			WHEN DESTIPDECISIONRESULTADORBM = 'Approve' then 1
-			WHEN DESTIPDECISIONRESULTADORBM = 'Decline' then 3
-			ELSE 2
-		END) AS RESULTADORBMJERARQUIA,
-		(CASE
-			WHEN DESCANALVENTARBMPER = 'BANCA MÓVIL' AND DESEVALUACION = 'df_Regular' THEN '0.No valido'
-			WHEN DESCAMPANIASOLICITUD = 'Reactivo' THEN '1.Reactivo'
-			ELSE '2.No Reactivo'
-		END) AS EVALUACIONREACTIVO,
-		(CASE
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO IN ('Regular LD', 'Cuotealo') AND DESCAMPANIASOLICITUD IN ('100% Aprobado', 'Pre-Aprobado') THEN 'LD APR'
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO IN ('Regular LD', 'Cuotealo') AND DESCAMPANIASOLICITUD = 'CEF Shield' THEN 'LD SHD'
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO = 'Regular LD' AND DESCAMPANIASOLICITUD = 'Convenio' THEN 'LD CONV'
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO = 'Regular LD' AND DESCAMPANIASOLICITUD = 'Invitado' THEN 'LD INV'
-			
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO = 'Compra de Deuda' AND DESCAMPANIASOLICITUD IN ('100% Aprobado', 'Pre-Aprobado') THEN 'CDD APR'
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO = 'Compra de Deuda' AND DESCAMPANIASOLICITUD = 'Convenio' THEN 'CDD CONV'
-			
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO = 'LD + Consolidación' AND DESCAMPANIASOLICITUD IN ('100% Aprobado', 'Pre-Aprobado') THEN 'REE APR'
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO = 'LD + Consolidación' AND DESCAMPANIASOLICITUD = 'Convenio'  THEN 'REE CONV'
-			
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO = 'LD + Compra de Deuda + Consolidación' AND DESCAMPANIASOLICITUD IN ('100% Aprobado', 'Pre-Aprobado') THEN 'CONS APR'
-			WHEN DESTIPEVALUACIONSOLICITUDCREDITO = 'LD + Compra de Deuda + Consolidación' AND DESCAMPANIASOLICITUD = 'Convenio' THEN 'CONS CONV'
-			
-			ELSE 'REACTIVO'
-		END) AS LEAD_CEF
-	FROM CATALOG_LHCL_PROD_BCP.BCP_DDV_RBMRBMPER_MODELOGESTION_VU.MD_EVALUACIONSOLICITUDCREDITO
-	WHERE TIPPRODUCTOSOLICITUDRBM = 'CC' AND DESCANALVENTARBMPER NOT IN ('YAPE', 'OTROS')
-),
-SOLICITUDESUNICAS AS (
-	SELECT *
-	FROM MD_EVALUACIONSOLICITUDCREDITO
-	WHERE EVALUACIONREACTIVO <> '0.No valido'
-	QUALIFY ROW_NUMBER() OVER (
-		PARTITION BY CODINTERNOCOMPUTACIONAL, NUMSOLICITUDEVALUACION
-		ORDER BY RESULTADORBMJERARQUIA ASC, FECEVALUACION DESC
-	) = 1
-),
-H_TIPOCAMBIO AS (
-	SELECT
-		CAST(date_format(FECTIPCAMBIO, 'yyyyMM') AS INT) AS CODMES,
-		FECTIPCAMBIO,
-		CODMONEDAORIGEN,
-		CODMONEDADESTINO,
-		MTOCAMBIOMONEDAORIGENMONEDADESTINO
-	FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.H_TIPOCAMBIO
-	WHERE CODMONEDADESTINO = '0001' AND CODAPP = 'GLM' AND CAST(date_format(FECTIPCAMBIO, 'yyyyMM') AS INT) BETWEEN 202501 AND 202512
-),
-TP_TIPOCAMBIO_MAXDAY AS (
-	SELECT
-		CODMES,
-		MAX(FECTIPCAMBIO) AS FECTIPCAMBIO
-	FROM H_TIPOCAMBIO
-	GROUP BY CODMES
-),
-M_TIPOCAMBIO AS (
-	SELECT
-		A.CODMES,
-		A.FECTIPCAMBIO,
-		A.CODMONEDAORIGEN,
-		A.CODMONEDADESTINO,
-		A.MTOCAMBIOMONEDAORIGENMONEDADESTINO
-	FROM H_TIPOCAMBIO
-	JOIN TP_TIPOCAMBIO_MAXDAY ON (A.CODMES = B.CODMES AND A.FECTIPCAMBIO = B.FECTIPCAMBIO)
-	QUALIFY ROW_NUMBER() OVER (
-		PARTITION BY A.CODMES, A.CODMONEDAORIGEN
-		ORDER BY A.CODMONEDAORIGEN
-	) = 1
-)
+
+begin
+    declare v_dia int default 0;
+    declare v_mes int default 202401;
+    declare v_sqlStr string;
+
+    bucle: loop
+
+        set v_sqlStr = '
+        insert into catalog_lhcl_prod_bcp.bcp_edv_coecnm.t52537_tp_analisispushCTR
+        (codmes,fecevncio,ctddiasspostaccion,ctdcomunicacionexitosa,ctdcomunicacionleidos)
+        select 
+            a.fecprogramadavionemensajeinstantaneo codmes,
+            a.fecprogramadavionemensajeinstantaneo fecevncio,
+            '||v_dia||' as ctddiasspostaccion,
+            ctdcomunicacionexitosa,
+            sum(case when b.ctdacciones is not null then 1 else 0 end) ctdcomunicacionleidos
+        from catalog_lhcl_prod_bcp.bcp_udv_int_yu_h_envionemensajeinstantaneo a
+        left join
+        (
+            select fecprogramadavionemensajeinstantaneo,
+                   codenvionemensajeinstantaneo,
+                   count(1) ctdacciones
+            from catalog_lhcl_prod_bcp.bcp_udv_int_yu_h_accionenvionemensajeinstantaneo
+            where to_char(fecprogramadavionemensajeinstantaneo,''yyyyMM'')='''||v_mes||''' 
+              and tipaccionevionicomunicacion=''10'' 
+              and date_diff(month,feceaccionenvionemensajeinstantaneo,fecprogramadavionemensajeinstantaneo) >= 0 
+              and date_diff(day,feceaccionenvionemensajeinstantaneo,fecprogramadavionemensajeinstantaneo) <= '||v_dia||'
+            group by fecprogramadavionemensajeinstantaneo,codenvionemensajeinstantaneo
+        ) b
+        on (a.fecprogramadavionemensajeinstantaneo=b.fecprogramadavionemensajeinstantaneo 
+            and a.codenvionemensajeinstantaneo=b.codenvionemensajeinstantaneo)
+        where a.codmesprogramadavionemensajeinstantaneo='''||v_mes||''' 
+          and a.codcanalcomunicacion in (''A1'',''A2'') 
+          and a.tipestadoenviocomunicacion=''1''
+        group by a.codmesprogramadavionemensajeinstantaneo,
+                 a.fecprogramadavionemensajeinstantaneo';
+
+        execute immediate v_sqlStr;
+
+        set v_dia = v_dia + 1;
+
+        if v_dia >= 60 then
+            leave bucle;
+        end if;
+
+        if v_dia < 60 then
+            iterate bucle;
+        end if;
+
+    end loop bucle;
+
+end;
