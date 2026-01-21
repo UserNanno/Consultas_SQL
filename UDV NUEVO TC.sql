@@ -1,1 +1,1 @@
-[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column, variable, or function parameter with name `A`.`CODMES` cannot be resolved. Did you mean one of the following? [`P`.`CODMES`, `P`.`CODMES_1`, `A`.`NUMPLAZO`, `A`.`TIPVENTA`, `A`.`CODPAUTARBM`]. SQLSTATE: 42703; line 215, pos 10
+[DELTA_DUPLICATE_COLUMNS_FOUND] Found duplicate column(s) in the data to save: mto_oferta.
