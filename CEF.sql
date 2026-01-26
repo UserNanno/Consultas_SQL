@@ -1,403 +1,703 @@
-WITH SOL AS (
-  SELECT
-    A.CODMESEVALUACION,
-    A.FECSOLICITUDEVALUACION,
-    A.FECEVALUACION,
-    A.DESCANALVENTARBMPER,
-    A.TIPPRODUCTOSOLICITUDRBM,
-    A.DESCANALVENTASOLICITUDRBM,
-    A.DESTIPDECISIONRESULTADORBM,
-    TRIM(regexp_replace(A.CODINTERNOCOMPUTACIONAL, '[\\n\\r\\t]', '')) AS CODINTERNOCOMPUTACIONAL,
-    A.DESTIPDECISIONRESULTADOPRIORIZACION,
-    A.DESCAMPANIASOLICITUD,
-    A.DESTIPEVALUACIONSOLICITUDCREDITO,
-    A.CODIDEVALUACION,
-    A.CODEVALUACIONSOLICITUD,
-    A.CODSECUENCIALDECISIONRBM,
-    A.NUMSOLICITUDEVALUACION,
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
+from pyspark.sql.types import DecimalType
 
-    CASE
-      WHEN A.DESCANALVENTARBMPER = 'SALEFORCE' THEN SUBSTR(TRIM(A.NUMSOLICITUDEVALUACION), 5, 7)
-      WHEN A.DESCANALVENTARBMPER = 'LOANS'     THEN SUBSTR(TRIM(A.NUMSOLICITUDEVALUACION), 3, 8)
-      ELSE TRIM(A.NUMSOLICITUDEVALUACION)
-    END AS NUMSOLICITUDEVALUACIONCORTO,
+BASE_DIR_ORGANICO   = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/ORGANICO/1n_Activos_*.csv"
+PATH_PA_SOLICITUDES = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/POWERAPPS/BASESOLICITUDES/POWERAPP_EDV.csv"
+PATH_SF_ESTADOS     = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/SALESFORCE/INFORME_ESTADO/INFORME_ESTADO_*.csv"
+PATH_SF_PRODUCTOS   = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/SALESFORCE/INFORME_PRODUCTO/INFORME_PRODUCTO_*.csv"
 
-    B.CODCLAVEPARTYCLI,
+def quitar_tildes(col):
+    c = F.regexp_replace(col, "[ÁÀÂÄáàâä]", "A")
+    c = F.regexp_replace(c, "[ÉÈÊËéèêë]", "E")
+    c = F.regexp_replace(c, "[ÍÌÎÏíìîï]", "I")
+    c = F.regexp_replace(c, "[ÓÒÔÖóòôö]", "O")
+    c = F.regexp_replace(c, "[ÚÙÛÜúùûü]", "U")
+    return c
 
-    CASE
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO IN ('Regular LD','Cuotealo')
-        AND A.DESCAMPANIASOLICITUD IN ('100% Aprobado','Pre-Aprobado') THEN 'LD APR'
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO IN ('Regular LD','Cuotealo')
-        AND A.DESCAMPANIASOLICITUD = 'CEF Shield' THEN 'LD SHD'
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO = 'Regular LD'
-        AND A.DESCAMPANIASOLICITUD = 'Convenio' THEN 'LD CONV'
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO = 'Regular LD'
-        AND A.DESCAMPANIASOLICITUD = 'Invitado' THEN 'LD INV'
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO = 'Compra de Deuda'
-        AND A.DESCAMPANIASOLICITUD IN ('100% Aprobado','Pre-Aprobado') THEN 'CDD APR'
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO = 'Compra de Deuda'
-        AND A.DESCAMPANIASOLICITUD = 'Convenio' THEN 'CDD CONV'
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO = 'LD + Consolidación'
-        AND A.DESCAMPANIASOLICITUD IN ('100% Aprobado','Pre-Aprobado') THEN 'REE APR'
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO = 'LD + Consolidación'
-        AND A.DESCAMPANIASOLICITUD = 'Convenio' THEN 'REE CONV'
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO = 'LD + Compra de Deuda + Consolidación'
-        AND A.DESCAMPANIASOLICITUD IN ('100% Aprobado','Pre-Aprobado') THEN 'CONS APR'
-      WHEN A.DESTIPEVALUACIONSOLICITUDCREDITO = 'LD + Compra de Deuda + Consolidación'
-        AND A.DESCAMPANIASOLICITUD = 'Convenio' THEN 'CONS CONV'
-      ELSE 'REACTIVO'
-    END AS LEAD_CEF_SOL
+def limpiar_cesado(col):
+    # quita (CESADO) y dobles espacios
+    c = F.regexp_replace(col, r"\(CESADO\)", "")
+    c = F.regexp_replace(c, r"\s+", " ")
+    return F.trim(c)
 
-  FROM CATALOG_LHCL_PROD_BCP.BCP_DDV_RBMRBMPER_MODELOGESTION_VU.MD_EVALUACIONSOLICITUDCREDITO A
-  LEFT JOIN CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.M_CLIENTE B
-    ON TRIM(regexp_replace(A.CODINTERNOCOMPUTACIONAL, '[\\n\\r\\t]', '')) = TRIM(B.CODINTERNOCOMPUTACIONAL)
-  WHERE A.TIPPRODUCTOSOLICITUDRBM = 'CC'
-    AND A.DESCANALVENTARBMPER NOT IN ('YAPE','OTROS')
-    AND A.DESTIPDECISIONRESULTADORBM IN ('Approve','Decline','Investigate')
-    AND A.CODINTERNOCOMPUTACIONAL IS NOT NULL
-    AND TRIM(regexp_replace(A.CODINTERNOCOMPUTACIONAL, '[\\n\\r\\t]', '')) <> ''
-),
+def norm_txt(col):
+    """
+    Normalización 'robusta':
+    - upper
+    - quitar tildes
+    - normalizar espacios
+    - dejar letras/números/espacios (reduce ruido de caracteres especiales)
+    """
+    c = col.cast("string")
+    c = F.upper(c)
+    c = quitar_tildes(c)
+    c = F.regexp_replace(c, u"\u00A0", " ")
+    c = F.regexp_replace(c, u"\u202F", " ")
+    c = F.regexp_replace(c, r"\s+", " ")
+    c = F.trim(c)
+    # opcional: quitar puntuación “extraña” que rompe tokens (mantiene letras/números/espacio)
+    c = F.regexp_replace(c, r"[^A-Z0-9 ]", " ")
+    c = F.regexp_replace(c, r"\s+", " ")
+    c = F.trim(c)
+    return c
 
-SOL_NORM AS (
-  SELECT
-    s.*,
-    CASE WHEN s.CODEVALUACIONSOLICITUD LIKE 'OP-%' THEN 1 ELSE 0 END AS FLG_OP_PREFIX,
-    COALESCE(CAST(NULLIF(regexp_extract(s.CODEVALUACIONSOLICITUD,'([0-9]+)',1),'') AS BIGINT),-1) AS CODEVAL_NUM
-  FROM SOL s
-),
+def norm_col(df, cols):
+    for c in cols:
+        df = df.withColumn(c, norm_txt(F.col(c)))
+    return df
 
-SOL_ORD AS (
-  SELECT
-    n.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY n.CODINTERNOCOMPUTACIONAL
-      ORDER BY
-        n.FECSOLICITUDEVALUACION,
-        n.FLG_OP_PREFIX,
-        n.CODEVAL_NUM,
-        n.CODEVALUACIONSOLICITUD,
-        n.CODSECUENCIALDECISIONRBM,
-        n.CODIDEVALUACION
-    ) AS RN_SOL,
 
-    LAG(n.FECSOLICITUDEVALUACION) OVER (
-      PARTITION BY n.CODINTERNOCOMPUTACIONAL
-      ORDER BY
-        n.FECSOLICITUDEVALUACION,
-        n.FLG_OP_PREFIX,
-        n.CODEVAL_NUM,
-        n.CODEVALUACIONSOLICITUD,
-        n.CODSECUENCIALDECISIONRBM,
-        n.CODIDEVALUACION
-    ) AS PREV_FECSOL,
+def parse_fecha_hora_esp(col):
+    s = col.cast("string")
+    s = F.regexp_replace(s, u"\u00A0", " ")
+    s = F.regexp_replace(s, u"\u202F", " ")
+    s = F.lower(F.trim(s))
+    s = F.regexp_replace(s, r"\s+", " ")
+    s = F.regexp_replace(s, r"(?i)a\W*m\W*", "AM")
+    s = F.regexp_replace(s, r"(?i)p\W*m\W*", "PM")
+    return F.to_timestamp(s, "dd/MM/yyyy hh:mm a")
+    
+def build_org_tokens(df_org):
+    df_org = (
+        df_org
+        .withColumn("TOKENS_NOMBRE_ORG", F.array_distinct(F.split(F.col("NOMBRECOMPLETO_CLEAN"), r"\s+")))
+        .withColumn("N_TOK_ORG", F.size("TOKENS_NOMBRE_ORG"))
+    )
+    return (
+        df_org
+        .select("CODMES", "MATORGANICO", "MATSUPERIOR", "NOMBRECOMPLETO", "TOKENS_NOMBRE_ORG", "N_TOK_ORG")
+        .withColumn("TOKEN", F.explode("TOKENS_NOMBRE_ORG"))
+    )
 
-    LAG(n.FLG_OP_PREFIX) OVER (
-      PARTITION BY n.CODINTERNOCOMPUTACIONAL
-      ORDER BY
-        n.FECSOLICITUDEVALUACION,
-        n.FLG_OP_PREFIX,
-        n.CODEVAL_NUM,
-        n.CODEVALUACIONSOLICITUD,
-        n.CODSECUENCIALDECISIONRBM,
-        n.CODIDEVALUACION
-    ) AS PREV_FLG_OP,
+def match_persona_vs_organico(df_org_tokens, df_sf, codmes_sf_col, codsol_col, nombre_sf_col,
+                              min_tokens=3, min_ratio_sf=0.60):
+    df_sf_nombres = (
+        df_sf
+        .withColumn("TOKENS_NOMBRE_SF", F.array_distinct(F.split(F.col(nombre_sf_col), r"\s+")))
+        .withColumn("N_TOK_SF", F.size("TOKENS_NOMBRE_SF"))
+    )
 
-    LAG(n.CODEVAL_NUM) OVER (
-      PARTITION BY n.CODINTERNOCOMPUTACIONAL
-      ORDER BY
-        n.FECSOLICITUDEVALUACION,
-        n.FLG_OP_PREFIX,
-        n.CODEVAL_NUM,
-        n.CODEVALUACIONSOLICITUD,
-        n.CODSECUENCIALDECISIONRBM,
-        n.CODIDEVALUACION
-    ) AS PREV_CODEVAL_NUM,
+    df_sf_tokens = (
+        df_sf_nombres
+        .select(codmes_sf_col, codsol_col, nombre_sf_col, "TOKENS_NOMBRE_SF", "N_TOK_SF")
+        .withColumn("TOKEN", F.explode("TOKENS_NOMBRE_SF"))
+    )
 
-    LAG(n.CODEVALUACIONSOLICITUD) OVER (
-      PARTITION BY n.CODINTERNOCOMPUTACIONAL
-      ORDER BY
-        n.FECSOLICITUDEVALUACION,
-        n.FLG_OP_PREFIX,
-        n.CODEVAL_NUM,
-        n.CODEVALUACIONSOLICITUD,
-        n.CODSECUENCIALDECISIONRBM,
-        n.CODIDEVALUACION
-    ) AS PREV_CODEVAL_TXT
-  FROM SOL_NORM n
-),
-
-SOL_REING AS (
-  SELECT
-    o.*,
-    CASE
-      WHEN o.PREV_FECSOL IS NULL THEN 0
-      WHEN (
-        o.FECSOLICITUDEVALUACION > o.PREV_FECSOL
-        OR (
-          o.FECSOLICITUDEVALUACION = o.PREV_FECSOL
-          AND (
-            o.FLG_OP_PREFIX > o.PREV_FLG_OP
-            OR (o.FLG_OP_PREFIX = o.PREV_FLG_OP AND o.CODEVAL_NUM > o.PREV_CODEVAL_NUM)
-            OR (o.FLG_OP_PREFIX = o.PREV_FLG_OP AND o.CODEVAL_NUM = o.PREV_CODEVAL_NUM AND o.CODEVALUACIONSOLICITUD > o.PREV_CODEVAL_TXT)
-          )
+    df_join = (
+        df_sf_tokens.alias("sf")
+        .join(
+            df_org_tokens.alias("org"),
+            (F.col(f"sf.{codmes_sf_col}") == F.col("org.CODMES")) &
+            (F.col("sf.TOKEN") == F.col("org.TOKEN")),
+            "inner"
         )
-      )
-      AND o.FECSOLICITUDEVALUACION <= add_months(o.PREV_FECSOL,1)
-      THEN 1 ELSE 0
-    END AS FLG_REINGRESO_1M
-  FROM SOL_ORD o
-),
+    )
 
-VENTA AS (
-  SELECT
-    CAST(date_format(FECAPERTURA,'yyyyMM') AS INT) AS CODMESAPERTURA,
-    CODSOLICITUD,
-    CASE
-      WHEN SUBSTR(TRIM(CODSOLICITUD),1,2) IN ('CX','DX') THEN SUBSTR(TRIM(CODSOLICITUD),3,8)
-      WHEN CODSOLICITUD LIKE '2________' THEN SUBSTR(TRIM(CODSOLICITUD),3,7)
-      WHEN CODSOLICITUD LIKE '      2________' THEN SUBSTR(TRIM(CODSOLICITUD),3,7)
-      WHEN CODSOLICITUD LIKE 'O%' THEN SUBSTR(TRIM(CODSOLICITUD),3,7)
-      ELSE TRIM(CODSOLICITUD)
-    END AS CODSOLICITUDCORTO,
-    CASE
-      WHEN CODPRODUCTO='CPEFIA' THEN 'CUOTEALO'
-      WHEN SUBSTR(TRIM(CODSOLICITUD),1,2)='PE' THEN 'CUOTEALO'
-      WHEN CODPRODUCTO='CPEYAP' THEN 'YAPE'
-      WHEN SUBSTR(TRIM(CODSOLICITUD),1,2)='YP' THEN 'YAPE'
-      WHEN SUBSTR(TRIM(CODSOLICITUD),1,2)='JB' THEN 'BANCA MÓVIL'
-      WHEN SUBSTR(TRIM(CODSOLICITUD),1,2) IN ('CX','DX') THEN 'LOANS'
-      WHEN CODSOLICITUD LIKE '2________' THEN 'SALEFORCE'
-      WHEN CODSOLICITUD LIKE '      2________' THEN 'SALEFORCE'
-      WHEN CODSOLICITUD LIKE 'O%' THEN 'SALEFORCE'
-      ELSE 'OTROS'
-    END AS CANAL_MDPREST,
-    FECAPERTURA,
-    FECDESEMBOLSO,
-    MTOORIGINALCREDITO,
-    MTODESEMBOLSADO,
-    CODCLAVEPARTYCLI
-  FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.M_CUENTACREDITOPERSONAL
-  WHERE CODPRODUCTO IN ('CPEEFM','CPECMC','CPEDPP','CPECEM','CPEECV','CPEGEN','CPEADH','CPEFIA')
-    AND FLGREGELIMINADOFUENTE='N'
-),
+    match_cols = [codmes_sf_col, codsol_col, nombre_sf_col, "MATORGANICO", "MATSUPERIOR"]
 
-MATCH_ONE AS (
-  SELECT *
-  FROM (
-    SELECT
-      s.*,
-      v.CODMESAPERTURA,
-      v.CODSOLICITUD,
-      v.CANAL_MDPREST,
-      v.FECAPERTURA,
-      v.MTOORIGINALCREDITO,
-      v.MTODESEMBOLSADO,
-      ROW_NUMBER() OVER (
-        PARTITION BY s.CODINTERNOCOMPUTACIONAL, s.CODIDEVALUACION, s.CODEVALUACIONSOLICITUD
-        ORDER BY ABS(datediff(v.FECAPERTURA,s.FECSOLICITUDEVALUACION)), v.FECAPERTURA
-      ) AS RN_MATCH
-    FROM SOL_REING s
-    LEFT JOIN VENTA v
-      ON s.CODCLAVEPARTYCLI = v.CODCLAVEPARTYCLI
-     AND s.DESCANALVENTARBMPER = v.CANAL_MDPREST
-     AND TRIM(s.NUMSOLICITUDEVALUACIONCORTO) = TRIM(v.CODSOLICITUDCORTO)
-     AND datediff(v.FECAPERTURA,s.FECSOLICITUDEVALUACION) BETWEEN 0 AND 40
-  ) x
-  WHERE RN_MATCH = 1
-),
+    df_scores = (
+        df_join
+        .groupBy(match_cols)
+        .agg(
+            F.countDistinct("sf.TOKEN").alias("TOKENS_MATCH"),
+            F.first("sf.N_TOK_SF").alias("N_TOK_SF"),
+            F.first("org.N_TOK_ORG").alias("N_TOK_ORG"),
+        )
+        .withColumn("RATIO_SF", F.col("TOKENS_MATCH") / F.col("N_TOK_SF"))
+        .withColumn("RATIO_ORG", F.col("TOKENS_MATCH") / F.col("N_TOK_ORG"))
+        .filter((F.col("TOKENS_MATCH") >= min_tokens) & (F.col("RATIO_SF") >= min_ratio_sf))
+    )
 
-BASE_FLAGS AS (
-  SELECT
-    m.CODEVALUACIONSOLICITUD,
-    m.CODINTERNOCOMPUTACIONAL,
-    m.CODCLAVEPARTYCLI,
-    m.CODMESEVALUACION AS CODMESSOLICITUDEVALUACION,
-    m.FECSOLICITUDEVALUACION,
-    m.DESCANALVENTARBMPER AS DESCANALVENTARBM,
-    m.DESTIPDECISIONRESULTADORBM,
-    m.DESCAMPANIASOLICITUD,
-    m.DESTIPEVALUACIONSOLICITUDCREDITO,
-    m.CANAL_MDPREST,
-    m.FLG_REINGRESO_1M,
-    m.LEAD_CEF_SOL,
-    CASE WHEN m.DESTIPDECISIONRESULTADORBM='Approve' THEN 1 ELSE 0 END AS FLG_APROBADO,
-    CASE WHEN m.DESTIPDECISIONRESULTADORBM IN ('Decline','Investigate') THEN 1 ELSE 0 END AS FLG_DENEGADO,
-    CASE WHEN m.DESTIPDECISIONRESULTADORBM IN ('Decline','Investigate') AND m.FLG_REINGRESO_1M = 1 THEN 1 ELSE 0 END AS FLG_DENEGADO_CON_REINGRESO_1M,
-    CASE WHEN m.DESTIPDECISIONRESULTADORBM IN ('Decline','Investigate') AND m.FLG_REINGRESO_1M = 0 THEN 1 ELSE 0 END AS FLG_DENEGADO_SIN_REINGRESO_1M,
-    CASE WHEN m.DESTIPDECISIONRESULTADORBM='Approve' AND m.FECAPERTURA IS NOT NULL THEN 1 ELSE 0 END AS FLG_DESEMBOLSADO,
-    CASE WHEN m.DESTIPDECISIONRESULTADORBM='Approve' AND m.FECAPERTURA IS NULL THEN 1 ELSE 0 END AS FLG_NODESEMBOLSADO,
-    CASE WHEN m.DESTIPDECISIONRESULTADORBM='Approve' AND m.FLG_REINGRESO_1M = 1 AND m.FECAPERTURA IS NOT NULL THEN 1 ELSE 0 END AS FLG_APROBADO_CON_REINGRESO_1M_CON_DESEMBOLSO,
-    CASE WHEN m.DESTIPDECISIONRESULTADORBM='Approve' AND m.FLG_REINGRESO_1M = 1 AND m.FECAPERTURA IS NULL THEN 1 ELSE 0 END AS FLG_APROBADO_CON_REINGRESO_1M_SIN_DESEMBOLSO,
-    CASE WHEN m.DESTIPDECISIONRESULTADORBM='Approve' AND m.FLG_REINGRESO_1M = 0 AND m.FECAPERTURA IS NULL THEN 1 ELSE 0 END AS FLG_APROBADO_SIN_REINGRESO_SIN_DESEMBOLSO
-  FROM MATCH_ONE m
-),
+    w = Window.partitionBy(codmes_sf_col, codsol_col, nombre_sf_col).orderBy(
+        F.col("TOKENS_MATCH").desc(),
+        F.col("RATIO_SF").desc(),
+        F.col("RATIO_ORG").desc(),
+        F.col("MATORGANICO").asc()
+    )
 
-HM_LEADS_BDI_BASE AS (
-  SELECT
-    CODLOTEOFERTA,
-    TRIM(CODINTERNOCOMPUTACIONAL) AS CODINTERNOCOMPUTACIONAL,
-    TIPVENTA,
-    TIPOFERTA,
-    CODCONDICIONCLIENTE,
-    FECINICIOVIGENCIA,
-    CASE
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 3  AND CODCONDICIONCLIENTE IN ('APR','PRE') THEN 1
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 3  AND CODCONDICIONCLIENTE = 'OPT' THEN 2
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 41 AND CODCONDICIONCLIENTE IN ('APR','PRE') THEN 3
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 38 AND CODCONDICIONCLIENTE IN ('APR','PRE') THEN 4
-      WHEN TIPVENTA = 6   AND TIPOFERTA IN (89,98) THEN 5
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 3  AND CODCONDICIONCLIENTE = 'INV' THEN 6
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 187 THEN 7
-      WHEN TIPVENTA = 110 AND TIPOFERTA = 3 THEN 8
-      WHEN TIPVENTA = 110 AND TIPOFERTA = 41 THEN 9
-      WHEN TIPVENTA = 110 AND TIPOFERTA = 38 THEN 10
-      ELSE 11
-    END AS PRIORIDADLEAD,
-    CASE
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 3  AND CODCONDICIONCLIENTE IN ('APR','PRE') THEN 'LD APR'
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 3  AND CODCONDICIONCLIENTE = 'OPT' THEN 'LD OPT'
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 41 AND CODCONDICIONCLIENTE IN ('APR','PRE') THEN 'CDD APR'
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 38 AND CODCONDICIONCLIENTE IN ('APR','PRE') THEN 'REE APR'
-      WHEN TIPVENTA = 6   AND TIPOFERTA IN (89,98) THEN 'LD SHD'
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 3  AND CODCONDICIONCLIENTE = 'INV' THEN 'LD INV'
-      WHEN TIPVENTA = 6   AND TIPOFERTA = 187 THEN 'CDD INS'
-      WHEN TIPVENTA = 110 AND TIPOFERTA = 3 THEN 'LD CONV'
-      WHEN TIPVENTA = 110 AND TIPOFERTA = 41 THEN 'CDD CONV'
-      WHEN TIPVENTA = 110 AND TIPOFERTA = 38 THEN 'REE CONV'
-      ELSE 'OTRO'
-    END AS LEAD_CEF
-  FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.HM_LEADS_BDI
-  WHERE CODPAUTARBM <> 41
-    AND TIPVENTA IN (6,110)
-    AND DESCAMPANA NOT IN ('CREDITO PERSONAL, VENTA AMPLIACION PLAZO', 'VENTA SKIP')
-    AND CODLOTEOFERTA BETWEEN 202501 AND 202512
-),
+    return (
+        df_scores
+        .withColumn("rn", F.row_number().over(w))
+        .filter(F.col("rn") == 1)
+        .drop("rn")
+    )
+    
 
-LEADS_UNICOS AS (
-  SELECT *
-  FROM HM_LEADS_BDI_BASE
-  QUALIFY ROW_NUMBER() OVER (
-    PARTITION BY CODLOTEOFERTA, CODINTERNOCOMPUTACIONAL
-    ORDER BY PRIORIDADLEAD ASC, FECINICIOVIGENCIA ASC
-  ) = 1
-),
+def to_decimal_monto(col):
+    s = col.cast("string")
+    s = F.regexp_replace(s, u"\u00A0", " ")
+    s = F.regexp_replace(s, u"\u202F", " ")
+    s = F.trim(s)
+    s = F.regexp_replace(s, r"\s+", "")
+    # robustez ante separadores, por si aparecen
+    s = F.when((F.instr(s, ",") > 0) & (F.instr(s, ".") > 0), F.regexp_replace(s, r"\.", "")).otherwise(s)
+    s = F.when(F.instr(s, ",") > 0, F.regexp_replace(s, ",", ".")).otherwise(s)
+    return s.cast(DecimalType(18, 2))
+    
+    
+def load_organico(spark, path_organico):
+    df_raw = (
+        spark.read.format("csv")
+        .option("header", "true")
+        .option("sep", ";")
+        .option("encoding", "ISO-8859-1")
+        .option("ignoreLeadingWhiteSpace", "true")
+        .option("ignoreTrailingWhiteSpace", "true")
+        .load(path_organico)
+    )
 
-BASE_FLAGS_LEAD AS (
-  SELECT
-    b.*,
-    CASE
-      WHEN b.LEAD_CEF_SOL IN ('REACTIVO','CONS APR','CONS CONV')
-        THEN CASE WHEN c.CODINTERNOCOMPUTACIONAL IS NOT NULL THEN 1 ELSE 0 END
-      ELSE CASE WHEN (m.CODINTERNOCOMPUTACIONAL IS NOT NULL OR c.CODINTERNOCOMPUTACIONAL IS NOT NULL) THEN 1 ELSE 0 END
-    END AS FLG_CON_LEAD,
-    CASE
-      WHEN (
-        CASE
-          WHEN b.LEAD_CEF_SOL IN ('REACTIVO','CONS APR','CONS CONV')
-            THEN CASE WHEN c.CODINTERNOCOMPUTACIONAL IS NOT NULL THEN 1 ELSE 0 END
-          ELSE CASE WHEN (m.CODINTERNOCOMPUTACIONAL IS NOT NULL OR c.CODINTERNOCOMPUTACIONAL IS NOT NULL) THEN 1 ELSE 0 END
-        END
-      ) = 1 THEN 'CON_LEAD' ELSE 'SIN_LEAD'
-    END AS TIPO_LEAD
-  FROM BASE_FLAGS b
-  LEFT JOIN LEADS_UNICOS m
-    ON m.CODLOTEOFERTA = b.CODMESSOLICITUDEVALUACION
-   AND TRIM(m.CODINTERNOCOMPUTACIONAL) = TRIM(b.CODINTERNOCOMPUTACIONAL)
-   AND m.LEAD_CEF = b.LEAD_CEF_SOL
-  LEFT JOIN LEADS_UNICOS c
-    ON c.CODLOTEOFERTA = b.CODMESSOLICITUDEVALUACION
-   AND TRIM(c.CODINTERNOCOMPUTACIONAL) = TRIM(b.CODINTERNOCOMPUTACIONAL)
-),
+    df = df_raw.select(
+        F.col("CODMES").cast("string").alias("CODMES"),
+        F.col("Matrícula").alias("MATORGANICO"),
+        F.col("Nombre Completo").alias("NOMBRECOMPLETO"),
+        F.col("Correo electronico").alias("CORREO"),
+        F.col("Fecha Ingreso").alias("FECINGRESO"),
+        F.col("Matrícula Superior").alias("MATSUPERIOR"),
+    )
 
-SBS_DEUDA AS (
-  SELECT
-    CAST(date_format(FECDIA,'yyyyMM') AS INT) AS CODMESDEUDA,
-    CODCLAVEPARTYCLI,
-    SUM(MTODEUDASOL) AS MTODEUDASOL_SISTEMA,
-    MAX(
-      CASE
-        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) = 'NORMAL' THEN 1
-        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) IN ('CON PROBLEMAS POTENCIALES(CPP)','CPP','CON PROBLEMAS POTENCIALES (CPP)') THEN 2
-        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) = 'DEFICIENTE' THEN 3
-        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) = 'DUDOSO' THEN 4
-        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) IN ('PERDIDA','PÉRDIDA') THEN 5
-        ELSE 0
-      END
-    ) AS RIESGO_PEOR_ORD
-  FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.H_DEUDORSBSDETALLE
-  WHERE CAST(date_format(FECDIA,'yyyyMM') AS INT) BETWEEN 202412 AND 202512
-    AND UPPER(TRIM(NBREMPSISTEMAFINANCIERO)) NOT LIKE 'BANCO DE CREDITO DEL PER%'
-  GROUP BY CAST(date_format(FECDIA,'yyyyMM') AS INT), CODCLAVEPARTYCLI
-),
+    df = norm_col(df, ["MATORGANICO", "NOMBRECOMPLETO", "MATSUPERIOR"])
+    df = df.withColumn("MATSUPERIOR", F.regexp_replace("MATSUPERIOR", r"^0(?=[A-Z]\d{5})", ""))
 
-BASE_MESREF AS (
-  SELECT
-    b.*,
-    CAST(date_format(add_months(to_date(concat(CAST(b.CODMESSOLICITUDEVALUACION AS STRING),'01'),'yyyyMMdd'),-1),'yyyyMM') AS INT) AS CODMES_SBS_MENOS_1,
-    b.CODMESSOLICITUDEVALUACION AS CODMES_SBS_MES
-  FROM BASE_FLAGS_LEAD b
-),
+    df = (
+        df.withColumn("FECINGRESO", F.to_date("FECINGRESO"))
+          .withColumn("NOMBRECOMPLETO_CLEAN", limpiar_cesado(F.col("NOMBRECOMPLETO")))
+    )
+    return df
 
-BASE_SBS AS (
-  SELECT
-    x.*,
-    COALESCE(s1.MTODEUDASOL_SISTEMA,0) AS MTO_DEUDA_SBS_MES_MENOS_1,
-    COALESCE(s2.MTODEUDASOL_SISTEMA,0) AS MTO_DEUDA_SBS_MES,
-    COALESCE(s2.MTODEUDASOL_SISTEMA,0) - COALESCE(s1.MTODEUDASOL_SISTEMA,0) AS DELTA_DEUDA_SBS,
-    CASE WHEN COALESCE(s2.MTODEUDASOL_SISTEMA,0) - COALESCE(s1.MTODEUDASOL_SISTEMA,0) > 0 THEN 1 ELSE 0 END AS FLG_AUMENTO_DEUDA_SBS,
-    CASE WHEN COALESCE(s2.MTODEUDASOL_SISTEMA,0) - COALESCE(s1.MTODEUDASOL_SISTEMA,0) > 0
-         THEN COALESCE(s2.MTODEUDASOL_SISTEMA,0) - COALESCE(s1.MTODEUDASOL_SISTEMA,0) ELSE 0 END AS MTO_AUMENTO_DEUDA_SBS,
-    CASE WHEN (COALESCE(s2.MTODEUDASOL_SISTEMA,0) - COALESCE(s1.MTODEUDASOL_SISTEMA,0)) > 100 THEN 1 ELSE 0 END AS FLG_AUMENTO_DEUDA_SBS_REGLA,
-    CASE WHEN (COALESCE(s2.MTODEUDASOL_SISTEMA,0) - COALESCE(s1.MTODEUDASOL_SISTEMA,0)) > 100
-         THEN (COALESCE(s2.MTODEUDASOL_SISTEMA,0) - COALESCE(s1.MTODEUDASOL_SISTEMA,0)) ELSE 0 END AS MTO_AUMENTO_DEUDA_SBS_REGLA,
-    CASE COALESCE(s2.RIESGO_PEOR_ORD,0)
-      WHEN 1 THEN 'NORMAL'
-      WHEN 2 THEN 'CON PROBLEMAS POTENCIALES(CPP)'
-      WHEN 3 THEN 'DEFICIENTE'
-      WHEN 4 THEN 'DUDOSO'
-      WHEN 5 THEN 'PERDIDA'
-      ELSE 'SIN INFO'
-    END AS DESTIPCLASIFRIESGO_PEOR,
-    COALESCE(s2.RIESGO_PEOR_ORD,0) AS DESTIPCLASIFRIESGO_PEOR_ORD
-  FROM BASE_MESREF x
-  LEFT JOIN SBS_DEUDA s1
-    ON x.CODCLAVEPARTYCLI = s1.CODCLAVEPARTYCLI
-   AND x.CODMES_SBS_MENOS_1 = s1.CODMESDEUDA
-  LEFT JOIN SBS_DEUDA s2
-    ON x.CODCLAVEPARTYCLI = s2.CODCLAVEPARTYCLI
-   AND x.CODMES_SBS_MES = s2.CODMESDEUDA
+def load_sf_estados(spark, path_estados):
+    df_raw = (
+        spark.read.format("csv")
+        .option("header", "true")
+        .option("encoding", "ISO-8859-1")
+        .load(path_estados)
+    )
+
+    df = df_raw.select(
+        F.col("Fecha de inicio del paso").alias("FECINICIOEVALUACION_RAW"),
+        F.col("Fecha de finalización del paso").alias("FECFINEVALUACION_RAW"),
+        F.col("Nombre del registro").alias("CODSOLICITUD"),
+        F.col("Estado").alias("ESTADOSOLICITUD"),
+        F.col("Paso: Nombre").alias("NBRPASO"),
+        F.col("Último actor: Nombre completo").alias("NBRULTACTOR"),
+        F.col("Último actor del paso: Nombre completo").alias("NBRULTACTORPASO"),
+        F.col("Proceso de aprobación: Nombre").alias("PROCESO"),
+        F.col("Estado del paso").alias("ESTADOSOLICITUDPASO"),
+    )
+
+    # Normalización (incluye nombres porque se usan solo transitoriamente para match)
+    df = norm_col(df, [
+        "ESTADOSOLICITUD", "ESTADOSOLICITUDPASO", "NBRPASO", "NBRULTACTOR", "NBRULTACTORPASO", "PROCESO"
+    ])
+
+    # Limpieza (CESADO) también en Salesforce
+    df = (
+        df.withColumn("NBRULTACTOR", limpiar_cesado(F.col("NBRULTACTOR")))
+          .withColumn("NBRULTACTORPASO", limpiar_cesado(F.col("NBRULTACTORPASO")))
+    )
+
+    df = (
+        df.withColumn("FECHORINICIOEVALUACION", parse_fecha_hora_esp(F.col("FECINICIOEVALUACION_RAW")))
+          .withColumn("FECHORFINEVALUACION", parse_fecha_hora_esp(F.col("FECFINEVALUACION_RAW")))
+          .withColumn("FECINICIOEVALUACION", F.to_date("FECHORINICIOEVALUACION"))
+          .withColumn("FECFINEVALUACION", F.to_date("FECHORFINEVALUACION"))
+          .withColumn("HORINICIOEVALUACION", F.date_format("FECHORINICIOEVALUACION", "HH:mm:ss"))
+          .withColumn("HORFINEVALUACION", F.date_format("FECHORFINEVALUACION", "HH:mm:ss"))
+          .withColumn("CODMESEVALUACION", F.date_format("FECINICIOEVALUACION", "yyyyMM").cast("string"))
+          .drop("FECINICIOEVALUACION_RAW", "FECFINEVALUACION_RAW")
+    )
+
+    df = df.withColumn("CODSOLICITUD", F.trim(F.col("CODSOLICITUD").cast("string")))
+    return df
+
+def load_sf_productos_validos(spark, path_productos):
+    df_raw = (
+        spark.read.format("csv")
+        .option("header", "true")
+        .option("encoding", "ISO-8859-1")
+        .load(path_productos)
+    )
+
+    df = df_raw.select(
+        F.col("Nombre de la oportunidad").alias("CODSOLICITUD"),
+        F.col("Nombre del Producto").alias("NBRPRODUCTO"),
+        F.col("Etapa").alias("ETAPA"),
+        F.col("Analista").alias("NBRANALISTA"),                    # (MAT3)
+        F.col("Analista de crédito").alias("NBRANALISTAASIGNADO"), # (MAT4)
+        F.col("Tipo de Acción").alias("TIPACCION"),
+        F.col("Fecha de creación").alias("FECCREACION_RAW"),
+        F.col("Divisa de la oportunidad").alias("NBRDIVISA"),
+        F.col("Monto/Línea Solicitud").alias("MTOSOLICITADO"),
+        F.col("Monto/Línea aprobada").alias("MTOAPROBADO"),
+        F.col("Monto Solicitado/Ofertado").alias("MTOOFERTADO"),
+        F.col("Monto desembolsado").alias("MTODESEMBOLSADO"),
+        F.col("Centralizado/Punto de Contacto").alias("CENTROATENCION")
+    )
+
+    df = df.withColumn("CODSOLICITUD", F.trim(F.col("CODSOLICITUD").cast("string")))
+
+    df = df.withColumn(
+        "FLG_CODSOLICITUD_VALIDO",
+        F.when((F.length("CODSOLICITUD") == 11) & (F.col("CODSOLICITUD").startswith("O00")), 1).otherwise(0)
+    ).filter(F.col("FLG_CODSOLICITUD_VALIDO") == 1).drop("FLG_CODSOLICITUD_VALIDO")
+
+    # Normaliza textos (incluye nombres solo para match transitorio)
+    df = norm_col(df, [
+        "NBRPRODUCTO","ETAPA","NBRANALISTA","NBRANALISTAASIGNADO","TIPACCION","NBRDIVISA","CENTROATENCION"
+    ])
+    df = (
+        df.withColumn("NBRANALISTA", limpiar_cesado(F.col("NBRANALISTA")))
+          .withColumn("NBRANALISTAASIGNADO", limpiar_cesado(F.col("NBRANALISTAASIGNADO")))
+    )
+
+    # Fecha creación (puede venir en distintos formatos)
+    df = (
+        df.withColumn("FECCREACION_STR", F.trim(F.col("FECCREACION_RAW").cast("string")))
+          .withColumn(
+              "FECCREACION",
+              F.coalesce(
+                  F.to_date("FECCREACION_STR", "dd/MM/yyyy"),
+                  F.to_date("FECCREACION_STR", "yyyy-MM-dd"),
+                  F.to_date("FECCREACION_STR")
+              )
+          )
+          .withColumn("CODMESCREACION", F.date_format("FECCREACION", "yyyyMM").cast("string"))
+          .drop("FECCREACION_RAW", "FECCREACION_STR")
+    )
+
+    # Montos a decimal “en bruto”
+    df = (
+        df.withColumn("MTOSOLICITADO",  to_decimal_monto(F.col("MTOSOLICITADO")))
+          .withColumn("MTOAPROBADO",    to_decimal_monto(F.col("MTOAPROBADO")))
+          .withColumn("MTOOFERTADO",    to_decimal_monto(F.col("MTOOFERTADO")))
+          .withColumn("MTODESEMBOLSADO",to_decimal_monto(F.col("MTODESEMBOLSADO")))
+    )
+
+    return df
+
+def load_powerapps(spark, path_apps):
+    df = (
+        spark.read.format("csv")
+        .option("header", "true")
+        .option("sep", ";")
+        .option("encoding", "utf-8")
+        .option("ignoreLeadingWhiteSpace", "true")
+        .option("ignoreTrailingWhiteSpace", "true")
+        .load(path_apps)
+        .select(
+            F.col("CODMES").cast("string").alias("CODMES_APPS"),
+            "CODSOLICITUD",
+            "FECHORACREACION",
+            "MATANALISTA",
+            "PRODUCTO",
+            "RESULTADOANALISTA",
+            "MOTIVORESULTADOANALISTA",
+            "MOTIVOMALADERIVACION",
+            "SUBMOTIVOMALADERIVACION",
+        )
+    )
+
+    df = df.withColumn("CODSOLICITUD", F.trim(F.col("CODSOLICITUD").cast("string")))
+    df = norm_col(df, [
+        "MATANALISTA", "PRODUCTO", "RESULTADOANALISTA",
+        "MOTIVORESULTADOANALISTA", "MOTIVOMALADERIVACION", "SUBMOTIVOMALADERIVACION"
+    ])
+
+    # Timestamp de creación (para quedarnos con el último registro por CODSOLICITUD)
+    # Intentamos primero tu parse "esp", si no, dejamos fallback genérico.
+    df = (
+        df.withColumn("TS_APPS",
+            F.coalesce(
+                parse_fecha_hora_esp(F.col("FECHORACREACION")),
+                F.to_timestamp(F.col("FECHORACREACION"))
+            )
+        )
+    )
+
+    w = Window.partitionBy("CODSOLICITUD").orderBy(F.col("TS_APPS").desc_nulls_last())
+    df = df.withColumn("rn", F.row_number().over(w)).filter("rn=1").drop("rn")
+    return df
+
+
+
+def enrich_estados_con_organico(df_estados, df_org_tokens):
+    bm_actor = match_persona_vs_organico(
+        df_org_tokens=df_org_tokens,
+        df_sf=df_estados,
+        codmes_sf_col="CODMESEVALUACION",
+        codsol_col="CODSOLICITUD",
+        nombre_sf_col="NBRULTACTOR",
+        min_tokens=3,
+        min_ratio_sf=0.60
+    )
+
+    bm_paso = match_persona_vs_organico(
+        df_org_tokens=df_org_tokens,
+        df_sf=df_estados,
+        codmes_sf_col="CODMESEVALUACION",
+        codsol_col="CODSOLICITUD",
+        nombre_sf_col="NBRULTACTORPASO",
+        min_tokens=3,
+        min_ratio_sf=0.60
+    )
+
+    return (
+        df_estados
+        .join(
+            bm_actor.select("CODMESEVALUACION", "CODSOLICITUD", "NBRULTACTOR", "MATORGANICO", "MATSUPERIOR"),
+            on=["CODMESEVALUACION", "CODSOLICITUD", "NBRULTACTOR"],
+            how="left"
+        )
+        .join(
+            bm_paso.select(
+                "CODMESEVALUACION", "CODSOLICITUD", "NBRULTACTORPASO",
+                F.col("MATORGANICO").alias("MATORGANICOPASO"),
+                F.col("MATSUPERIOR").alias("MATSUPERIORPASO"),
+            ),
+            on=["CODMESEVALUACION", "CODSOLICITUD", "NBRULTACTORPASO"],
+            how="left"
+        )
+    )
+
+def enrich_productos_con_organico(df_productos, df_org_tokens):
+    bm_analista = match_persona_vs_organico(
+        df_org_tokens=df_org_tokens,
+        df_sf=df_productos,
+        codmes_sf_col="CODMESCREACION",
+        codsol_col="CODSOLICITUD",
+        nombre_sf_col="NBRANALISTA",
+        min_tokens=3,
+        min_ratio_sf=0.60
+    )
+
+    bm_asignado = match_persona_vs_organico(
+        df_org_tokens=df_org_tokens,
+        df_sf=df_productos,
+        codmes_sf_col="CODMESCREACION",
+        codsol_col="CODSOLICITUD",
+        nombre_sf_col="NBRANALISTAASIGNADO",
+        min_tokens=3,
+        min_ratio_sf=0.60
+    )
+
+    df_enriq = (
+        df_productos
+        .join(
+            bm_analista.select(
+                "CODMESCREACION","CODSOLICITUD",
+                F.col("MATORGANICO").alias("MATORGANICO_ANALISTA"),  # MAT3
+                F.col("MATSUPERIOR").alias("MATSUPERIOR_ANALISTA")
+            ),
+            on=["CODMESCREACION","CODSOLICITUD"],
+            how="left"
+        )
+        .join(
+            bm_asignado.select(
+                "CODMESCREACION","CODSOLICITUD",
+                F.col("MATORGANICO").alias("MATORGANICO_ASIGNADO"),  # MAT4
+                F.col("MATSUPERIOR").alias("MATSUPERIOR_ASIGNADO")
+            ),
+            on=["CODMESCREACION","CODSOLICITUD"],
+            how="left"
+        )
+    )
+    return df_enriq
+
+
+
+def build_last_estado_snapshot(df_estados_enriq):
+    w_last = Window.partitionBy("CODSOLICITUD").orderBy(
+        F.col("FECHORINICIOEVALUACION").desc_nulls_last(),
+        F.col("FECHORFINEVALUACION").desc_nulls_last()
+    )
+
+    return (
+        df_estados_enriq
+        .withColumn("rn_last", F.row_number().over(w_last))
+        .filter(F.col("rn_last") == 1)
+        .select(
+            "CODSOLICITUD",
+            "PROCESO",
+            "ESTADOSOLICITUD",
+            "ESTADOSOLICITUDPASO",
+            F.col("FECHORINICIOEVALUACION").alias("TS_ULTIMO_EVENTO_ESTADOS"),
+            F.col("FECHORFINEVALUACION").alias("TS_FIN_ULTIMO_EVENTO_ESTADOS"),
+            F.to_date("FECHORINICIOEVALUACION").alias("FECINICIOEVALUACION_ULT"),
+            F.to_date("FECHORFINEVALUACION").alias("FECFINEVALUACION_ULT"),
+            F.date_format(F.to_date("FECHORINICIOEVALUACION"), "yyyyMM").cast("string").alias("CODMESEVALUACION"),
+        )
+        .drop("rn_last")
+    )
+    
+    
+def build_productos_snapshot(df_productos_enriq):
+    w_prod = Window.partitionBy("CODSOLICITUD").orderBy(F.col("FECCREACION").desc_nulls_last())
+    return (
+        df_productos_enriq
+        .withColumn("rn_prod", F.row_number().over(w_prod))
+        .filter(F.col("rn_prod") == 1)
+        .select(
+            "CODSOLICITUD",
+            "NBRPRODUCTO",
+            "ETAPA",
+            "TIPACCION",
+            "NBRDIVISA",
+            "MTOSOLICITADO",
+            "MTOAPROBADO",
+            "MTOOFERTADO",
+            "MTODESEMBOLSADO",
+            F.col("FECCREACION").alias("TS_PRODUCTOS"),
+            # MAT3/MAT4 ya enriquecidos (útiles para atribución)
+            "MATORGANICO_ANALISTA",
+            "MATORGANICO_ASIGNADO",
+        )
+        .drop("rn_prod")
+    )
+
+
+
+def add_producto_tipo(df_final):
+    is_tc  = F.col("PROCESO").like("%APROBACION CREDITOS TC%")
+    is_cef = F.col("PROCESO").isin(
+        "CO SOLICITUD APROBACIONES TLMK",
+        "SFCP APROBACIONES EDUCATIVO",
+        "CO SOLICITUD APROBACIONES"
+    )
+    return df_final.withColumn(
+        "PRODUCTO",
+        F.when(is_tc, F.lit("TC"))
+         .when(is_cef, F.lit("CEF"))
+         .otherwise(F.lit(None))
+    )
+    
+    
+def build_matanalista_final(df_estados_enriq, df_prod_snap):
+
+    # -------------------------
+    # Roles a excluir
+    # -------------------------
+    gerente = ["U17293"]
+    supervisores = ["U17560", "U13421", "S18795", "U18900", "E12624", "U23436"]
+    roles_excluidos = gerente + supervisores
+
+    def es_valido_analista(col):
+        return (col.isNotNull()) & (~col.isin(roles_excluidos))
+
+    # -------------------------
+    # 1) Base desde ESTADOS
+    # -------------------------
+    is_tc  = F.col("PROCESO").like("%APROBACION CREDITOS TC%")
+    is_cef = F.col("PROCESO").isin(
+        "CO SOLICITUD APROBACIONES TLMK",
+        "SFCP APROBACIONES EDUCATIVO",
+        "CO SOLICITUD APROBACIONES"
+    )
+
+    paso_tc_analista  = (F.col("NBRPASO") == "APROBACION DE CREDITOS ANALISTA")
+    paso_cef_analista = (F.col("NBRPASO") == "EVALUACION DE SOLICITUD")
+
+    es_paso_base = (is_tc & paso_tc_analista) | (is_cef & paso_cef_analista)
+
+    w_base = Window.partitionBy("CODSOLICITUD").orderBy(
+        F.col("FECHORINICIOEVALUACION").desc_nulls_last()
+    )
+
+    df_base_latest = (
+        df_estados_enriq
+        .filter(es_paso_base)
+        .withColumn("rn", F.row_number().over(w_base))
+        .filter(F.col("rn") == 1)
+        .select(
+            "CODSOLICITUD",
+            F.col("MATORGANICO").alias("MAT1"),
+            F.col("MATORGANICOPASO").alias("MAT2"),
+            F.col("FECHORINICIOEVALUACION").alias("TS_BASE_ESTADOS")
+        )
+        .drop("rn")
+    )
+
+    # -------------------------
+    # 2) Productos (MAT3 / MAT4)
+    # -------------------------
+    df_prod_mats = (
+        df_prod_snap
+        .select(
+            "CODSOLICITUD",
+            F.col("MATORGANICO_ANALISTA").alias("MAT3"),
+            F.col("MATORGANICO_ASIGNADO").alias("MAT4")
+        )
+    )
+
+    df_all = df_base_latest.join(df_prod_mats, on="CODSOLICITUD", how="left")
+
+    # -------------------------
+    # 3) Selección secuencial con exclusión por rol
+    # -------------------------
+    df_final = (
+        df_all
+        .withColumn(
+            "MATANALISTA_FINAL",
+            F.when(es_valido_analista(F.col("MAT1")), F.col("MAT1"))
+             .when(es_valido_analista(F.col("MAT2")), F.col("MAT2"))
+             .when(es_valido_analista(F.col("MAT3")), F.col("MAT3"))
+             .when(es_valido_analista(F.col("MAT4")), F.col("MAT4"))
+             .otherwise(F.lit(None))
+        )
+        .withColumn(
+            "ORIGEN_MATANALISTA",
+            F.when(es_valido_analista(F.col("MAT1")), F.lit("ESTADOS_MAT1"))
+             .when(es_valido_analista(F.col("MAT2")), F.lit("ESTADOS_MAT2"))
+             .when(es_valido_analista(F.col("MAT3")), F.lit("PRODUCTOS_MAT3"))
+             .when(es_valido_analista(F.col("MAT4")), F.lit("PRODUCTOS_MAT4"))
+             .otherwise(F.lit(None))
+        )
+        .select(
+            "CODSOLICITUD",
+            "TS_BASE_ESTADOS",
+            "MATANALISTA_FINAL",
+            "ORIGEN_MATANALISTA"
+        )
+    )
+
+    return df_final
+    
+def add_matsuperior_from_organico(df_final, df_org):
+    df_org_key = (
+        df_org
+        .select(
+            F.col("CODMES").cast("string").alias("CODMESEVALUACION"),
+            F.col("MATORGANICO").alias("MATANALISTA_FINAL"),
+            F.col("MATSUPERIOR").alias("MATSUPERIOR_ORG")
+        )
+        .dropDuplicates(["CODMESEVALUACION", "MATANALISTA_FINAL"])
+    )
+
+    df_out = df_final.join(df_org_key, on=["CODMESEVALUACION", "MATANALISTA_FINAL"], how="left")
+
+    if "MATSUPERIOR" in df_out.columns:
+        df_out = (
+            df_out
+            .withColumn("MATSUPERIOR", F.coalesce(F.col("MATSUPERIOR"), F.col("MATSUPERIOR_ORG")))
+            .drop("MATSUPERIOR_ORG")
+        )
+    else:
+        df_out = df_out.withColumnRenamed("MATSUPERIOR_ORG", "MATSUPERIOR")
+
+    return df_out
+    
+    
+def apply_powerapps_fallback(df_final, df_apps):
+    df_apps_sel = (
+        df_apps
+        .select(
+            "CODSOLICITUD",
+            F.col("MATANALISTA").alias("MATANALISTA_APPS"),
+            F.col("RESULTADOANALISTA").alias("RESULTADOANALISTA_APPS"),
+            F.col("PRODUCTO").alias("PRODUCTO_APPS"),
+            "MOTIVORESULTADOANALISTA",
+            "MOTIVOMALADERIVACION",
+            "SUBMOTIVOMALADERIVACION",
+        )
+        .dropDuplicates(["CODSOLICITUD"])
+    )
+
+    df_out = (
+        df_final
+        .join(df_apps_sel, on="CODSOLICITUD", how="left")
+        .withColumn("MATANALISTA_FINAL", F.coalesce(F.col("MATANALISTA_FINAL"), F.col("MATANALISTA_APPS")))
+        .withColumn("ESTADOSOLICITUDPASO", F.coalesce(F.col("ESTADOSOLICITUDPASO"), F.col("RESULTADOANALISTA_APPS")))
+        .withColumn("NBRPRODUCTO", F.coalesce(F.col("NBRPRODUCTO"), F.col("PRODUCTO_APPS")))
+        .withColumn(
+            "ORIGEN_MATANALISTA",
+            F.when(F.col("ORIGEN_MATANALISTA").isNull() & F.col("MATANALISTA_APPS").isNotNull(), F.lit("APPS_MAT"))
+             .otherwise(F.col("ORIGEN_MATANALISTA"))
+        )
+        .drop("MATANALISTA_APPS", "RESULTADOANALISTA_APPS", "PRODUCTO_APPS")
+    )
+    return df_out
+    
+    
+    
+# 12.1 Staging
+df_org       = load_organico(spark, BASE_DIR_ORGANICO)
+df_org_tokens= build_org_tokens(df_org)
+
+df_estados   = load_sf_estados(spark, PATH_SF_ESTADOS)
+df_productos = load_sf_productos_validos(spark, PATH_SF_PRODUCTOS)
+df_apps      = load_powerapps(spark, PATH_PA_SOLICITUDES)
+
+# 12.2 Enriquecimiento con orgánico (matrículas)
+df_estados_enriq   = enrich_estados_con_organico(df_estados, df_org_tokens)
+df_productos_enriq = enrich_productos_con_organico(df_productos, df_org_tokens)
+
+# 12.3 Snapshots (1 fila por solicitud)
+df_last_estado = build_last_estado_snapshot(df_estados_enriq)
+df_prod_snap   = build_productos_snapshot(df_productos_enriq)
+
+# 12.4 Atribución analista final + origen (MAT1/MAT2/MAT3/MAT4)
+df_matanalista = build_matanalista_final(df_estados_enriq, df_prod_snap)
+
+# 12.5 Ensamble final (base = último estado)
+df_final = (
+    df_last_estado
+    .join(df_matanalista, on="CODSOLICITUD", how="left")
+    .join(df_prod_snap.select(
+        "CODSOLICITUD",
+        "NBRPRODUCTO","ETAPA","TIPACCION","NBRDIVISA",
+        "MTOSOLICITADO","MTOAPROBADO","MTOOFERTADO","MTODESEMBOLSADO",
+        "TS_PRODUCTOS"
+    ), on="CODSOLICITUD", how="left")
 )
 
-SELECT
-  CODMESSOLICITUDEVALUACION,
-  DESCANALVENTARBM,
-  DESTIPCLASIFRIESGO_PEOR,
-  DESTIPCLASIFRIESGO_PEOR_ORD,
-  TIPO_LEAD,
-  COUNT(*) AS N_SOLICITUDES,
-  SUM(FLG_APROBADO) AS CTDSOLICITUDESAPROBADAS,
-  SUM(FLG_DENEGADO) AS CTDSOLICITUDESDENEGADAS,
-  SUM(FLG_REINGRESO_1M) AS CTDSOLICITUDESREINGRESADAS,
-  SUM(FLG_DESEMBOLSADO) AS CTDSOLICITUDESDESEMBOLSADAS,
-  SUM(FLG_NODESEMBOLSADO) AS CTDSOLICITUDESNODESEMBOLSADAS,
-  SUM(FLG_APROBADO_CON_REINGRESO_1M_CON_DESEMBOLSO) AS CTDSOLICITUDESAPROBADASDESEMBOLSADASREINGRESO,
-  SUM(FLG_APROBADO_CON_REINGRESO_1M_SIN_DESEMBOLSO) AS CTDSOLICITUDESAPROBADASNODESEMBOLSADASREINGRESO,
-  SUM(FLG_APROBADO_SIN_REINGRESO_SIN_DESEMBOLSO) AS CTDSOLICITUDESAPROBADASNODESEMBOLSADASSINREINGRESO,
-  SUM(FLG_AUMENTO_DEUDA_SBS_REGLA) AS CTDSOLICITUDESAUMENTARONDEUDASBS,
-  SUM(CASE WHEN FLG_DENEGADO = 1 AND FLG_AUMENTO_DEUDA_SBS_REGLA = 1 THEN 1 ELSE 0 END) AS CTDSOLICITUDESDENEGADASAUMENTARONDEUDASBS,
-  SUM(CASE WHEN FLG_NODESEMBOLSADO = 1 AND FLG_AUMENTO_DEUDA_SBS_REGLA = 1 THEN 1 ELSE 0 END) AS CTDSOLICITUDESNODESEMBOLSADASAUMENTARONDEUDASBS,
-  SUM(CASE WHEN FLG_NODESEMBOLSADO = 1 AND FLG_AUMENTO_DEUDA_SBS_REGLA = 0 THEN 1 ELSE 0 END) AS CTDSOLICITUDESNODESEMBOLSADASNOAUMENTARONDEUDASBS
-FROM BASE_SBS
-WHERE CODMESSOLICITUDEVALUACION BETWEEN 202501 AND 202512
-  AND DESCANALVENTARBM NOT IN ('SALEFORCE')
-GROUP BY
-  CODMESSOLICITUDEVALUACION,
-  DESCANALVENTARBM,
-  DESTIPCLASIFRIESGO_PEOR,
-  DESTIPCLASIFRIESGO_PEOR_ORD,
-  TIPO_LEAD
-ORDER BY
-  CODMESSOLICITUDEVALUACION,
-  DESCANALVENTARBM,
-  DESTIPCLASIFRIESGO_PEOR_ORD,
-  TIPO_LEAD;
+# 12.6 Producto (TC/CEF)
+df_final = add_producto_tipo(df_final)
+
+# 12.7 MATSUPERIOR por orgánico (mes + matrícula)
+df_final = add_matsuperior_from_organico(df_final, df_org)
+
+# 12.8 PowerApps fallback + motivos
+df_final = apply_powerapps_fallback(df_final, df_apps)
+
+# 12.9 Re-llenar MATSUPERIOR por si PowerApps completó MATANALISTA_FINAL
+df_final = add_matsuperior_from_organico(df_final, df_org)
+
+# 12.10 Selección final (sin autonomías)
+df_final = df_final.select(
+    "CODSOLICITUD",
+    "PRODUCTO",
+    "CODMESEVALUACION",
+
+    "TS_BASE_ESTADOS",
+    "MATANALISTA_FINAL",
+    "ORIGEN_MATANALISTA",
+    "MATSUPERIOR",
+
+    "PROCESO",
+    "ESTADOSOLICITUD",
+    "ESTADOSOLICITUDPASO",
+    "TS_ULTIMO_EVENTO_ESTADOS",
+    "TS_FIN_ULTIMO_EVENTO_ESTADOS",
+    "FECINICIOEVALUACION_ULT",
+    "FECFINEVALUACION_ULT",
+
+    "NBRPRODUCTO",
+    "ETAPA",
+    "TIPACCION",
+    "NBRDIVISA",
+    "MTOSOLICITADO",
+    "MTOAPROBADO",
+    "MTOOFERTADO",
+    "MTODESEMBOLSADO",
+    "TS_PRODUCTOS",
+
+    "MOTIVORESULTADOANALISTA",
+    "MOTIVOMALADERIVACION",
+    "SUBMOTIVOMALADERIVACION",
+)
+
+
+df_final.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable("CATALOG_LHCL_PROD_BCP_EXPL.BCP_EDV_RBMBDN.TP_SOLICITUDES_CENTRALIZADO")
