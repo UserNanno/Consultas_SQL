@@ -1,9 +1,14 @@
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
+
 def build_estado_analista_snapshot(df_estados_enriq):
     """
     Devuelve 1 fila por CODSOLICITUD con:
-    - ESTADOSOLICITUDANALISTA: última decisión del analista (APROBADO/RECHAZADO);
-      si nunca hubo decisión (solo PENDIENTE) => PENDIENTE
-    - TS_DECISION_ANALISTA: timestamp del evento (inicio del paso) donde ocurrió esa decisión (si existe)
+    - ESTADOSOLICITUDANALISTA: última "decisión" del analista con prioridad:
+        1) APROBADO/RECHAZADO (más reciente)
+        2) RECUPERADA (más reciente)
+        3) PENDIENTE (si nunca hubo APROBADO/RECHAZADO/RECUPERADA)
+    - TS_DECISION_ANALISTA: timestamp del evento donde ocurrió la decisión elegida (si existe)
     - TS_ULTIMO_EVENTO_PASO_ANALISTA: timestamp del último evento del paso analista (incluye PENDIENTE)
     """
 
@@ -23,14 +28,14 @@ def build_estado_analista_snapshot(df_estados_enriq):
     df_paso = df_estados_enriq.filter(es_paso_analista)
 
     # 2) Último evento del paso analista (incluye PENDIENTE)
-    w_last_evt = Window.partitionBy("CODSOLICITUD").orderBy(
+    w_evt = Window.partitionBy("CODSOLICITUD").orderBy(
         F.col("FECHORINICIOEVALUACION").desc_nulls_last(),
         F.col("FECHORFINEVALUACION").desc_nulls_last()
     )
 
     df_last_evt = (
         df_paso
-        .withColumn("rn_evt", F.row_number().over(w_last_evt))
+        .withColumn("rn_evt", F.row_number().over(w_evt))
         .filter(F.col("rn_evt") == 1)
         .select(
             "CODSOLICITUD",
@@ -38,37 +43,52 @@ def build_estado_analista_snapshot(df_estados_enriq):
         )
     )
 
-    # 3) Última decisión (APROBADO/RECHAZADO) ignorando PENDIENTE
-    df_decisiones = df_paso.filter(F.col("ESTADOSOLICITUDPASO").isin("APROBADO", "RECHAZADO"))
+    # 3) Última decisión fuerte (APROBADO/RECHAZADO) ignorando PENDIENTE
+    df_fuerte = df_paso.filter(F.col("ESTADOSOLICITUDPASO").isin("APROBADO", "RECHAZADO"))
 
-    w_last_dec = Window.partitionBy("CODSOLICITUD").orderBy(
-        F.col("FECHORINICIOEVALUACION").desc_nulls_last(),
-        F.col("FECHORFINEVALUACION").desc_nulls_last()
-    )
-
-    df_last_dec = (
-        df_decisiones
-        .withColumn("rn_dec", F.row_number().over(w_last_dec))
-        .filter(F.col("rn_dec") == 1)
+    df_last_fuerte = (
+        df_fuerte
+        .withColumn("rn", F.row_number().over(w_evt))
+        .filter(F.col("rn") == 1)
         .select(
             "CODSOLICITUD",
-            F.col("ESTADOSOLICITUDPASO").alias("ESTADOSOLICITUDANALISTA_DEC"),
-            F.col("FECHORINICIOEVALUACION").alias("TS_DECISION_ANALISTA")
+            F.col("ESTADOSOLICITUDPASO").alias("ESTADO_FUERTE"),
+            F.col("FECHORINICIOEVALUACION").alias("TS_FUERTE")
         )
     )
 
-    # 4) Ensamble final:
-    # - Si hay decisión => usa esa
-    # - Si no hay decisión pero sí hay eventos del paso => PENDIENTE
-    # - Si no hay ni siquiera eventos del paso => null
+    # 4) Si no hubo fuerte, última decisión alternativa: RECUPERADA
+    df_rec = df_paso.filter(F.col("ESTADOSOLICITUDPASO") == "RECUPERADA")
+
+    df_last_rec = (
+        df_rec
+        .withColumn("rn", F.row_number().over(w_evt))
+        .filter(F.col("rn") == 1)
+        .select(
+            "CODSOLICITUD",
+            F.col("ESTADOSOLICITUDPASO").alias("ESTADO_REC"),
+            F.col("FECHORINICIOEVALUACION").alias("TS_REC")
+        )
+    )
+
+    # 5) Ensamble final con prioridad: fuerte > recuperada > pendiente
     out = (
         df_last_evt
-        .join(df_last_dec, on="CODSOLICITUD", how="left")
+        .join(df_last_fuerte, on="CODSOLICITUD", how="left")
+        .join(df_last_rec,   on="CODSOLICITUD", how="left")
         .withColumn(
             "ESTADOSOLICITUDANALISTA",
-            F.coalesce(F.col("ESTADOSOLICITUDANALISTA_DEC"), F.lit("PENDIENTE"))
+            F.when(F.col("ESTADO_FUERTE").isNotNull(), F.col("ESTADO_FUERTE"))
+             .when(F.col("ESTADO_REC").isNotNull(),    F.col("ESTADO_REC"))
+             .otherwise(F.lit("PENDIENTE"))
         )
-        .drop("ESTADOSOLICITUDANALISTA_DEC")
+        .withColumn(
+            "TS_DECISION_ANALISTA",
+            F.when(F.col("ESTADO_FUERTE").isNotNull(), F.col("TS_FUERTE"))
+             .when(F.col("ESTADO_REC").isNotNull(),    F.col("TS_REC"))
+             .otherwise(F.lit(None).cast("timestamp"))
+        )
+        .drop("ESTADO_FUERTE", "TS_FUERTE", "ESTADO_REC", "TS_REC")
     )
 
     return out
