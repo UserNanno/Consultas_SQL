@@ -1,94 +1,130 @@
-from pyspark.sql import functions as F
-from pyspark.sql.window import Window
-
-def build_estado_analista_snapshot(df_estados_enriq):
-    """
-    Devuelve 1 fila por CODSOLICITUD con:
-    - ESTADOSOLICITUDANALISTA: última "decisión" del analista con prioridad:
-        1) APROBADO/RECHAZADO (más reciente)
-        2) RECUPERADA (más reciente)
-        3) PENDIENTE (si nunca hubo APROBADO/RECHAZADO/RECUPERADA)
-    - TS_DECISION_ANALISTA: timestamp del evento donde ocurrió la decisión elegida (si existe)
-    - TS_ULTIMO_EVENTO_PASO_ANALISTA: timestamp del último evento del paso analista (incluye PENDIENTE)
-    """
-
-    # 1) Definir "paso de analista" (misma lógica que atribución)
-    is_tc  = F.col("PROCESO").like("%APROBACION CREDITOS TC%")
-    is_cef = F.col("PROCESO").isin(
-        "CO SOLICITUD APROBACIONES TLMK",
-        "SFCP APROBACIONES EDUCATIVO",
-        "CO SOLICITUD APROBACIONES"
-    )
-
-    paso_tc_analista  = (F.col("NBRPASO") == "APROBACION DE CREDITOS ANALISTA")
-    paso_cef_analista = (F.col("NBRPASO") == "EVALUACION DE SOLICITUD")
-
-    es_paso_analista = (is_tc & paso_tc_analista) | (is_cef & paso_cef_analista)
-
-    df_paso = df_estados_enriq.filter(es_paso_analista)
-
-    # 2) Último evento del paso analista (incluye PENDIENTE)
-    w_evt = Window.partitionBy("CODSOLICITUD").orderBy(
-        F.col("FECHORINICIOEVALUACION").desc_nulls_last(),
-        F.col("FECHORFINEVALUACION").desc_nulls_last()
-    )
-
-    df_last_evt = (
-        df_paso
-        .withColumn("rn_evt", F.row_number().over(w_evt))
-        .filter(F.col("rn_evt") == 1)
-        .select(
-            "CODSOLICITUD",
-            F.col("FECHORINICIOEVALUACION").alias("TS_ULTIMO_EVENTO_PASO_ANALISTA")
-        )
-    )
-
-    # 3) Última decisión fuerte (APROBADO/RECHAZADO) ignorando PENDIENTE
-    df_fuerte = df_paso.filter(F.col("ESTADOSOLICITUDPASO").isin("APROBADO", "RECHAZADO"))
-
-    df_last_fuerte = (
-        df_fuerte
-        .withColumn("rn", F.row_number().over(w_evt))
-        .filter(F.col("rn") == 1)
-        .select(
-            "CODSOLICITUD",
-            F.col("ESTADOSOLICITUDPASO").alias("ESTADO_FUERTE"),
-            F.col("FECHORINICIOEVALUACION").alias("TS_FUERTE")
-        )
-    )
-
-    # 4) Si no hubo fuerte, última decisión alternativa: RECUPERADA
-    df_rec = df_paso.filter(F.col("ESTADOSOLICITUDPASO") == "RECUPERADA")
-
-    df_last_rec = (
-        df_rec
-        .withColumn("rn", F.row_number().over(w_evt))
-        .filter(F.col("rn") == 1)
-        .select(
-            "CODSOLICITUD",
-            F.col("ESTADOSOLICITUDPASO").alias("ESTADO_REC"),
-            F.col("FECHORINICIOEVALUACION").alias("TS_REC")
-        )
-    )
-
-    # 5) Ensamble final con prioridad: fuerte > recuperada > pendiente
-    out = (
-        df_last_evt
-        .join(df_last_fuerte, on="CODSOLICITUD", how="left")
-        .join(df_last_rec,   on="CODSOLICITUD", how="left")
-        .withColumn(
-            "ESTADOSOLICITUDANALISTA",
-            F.when(F.col("ESTADO_FUERTE").isNotNull(), F.col("ESTADO_FUERTE"))
-             .when(F.col("ESTADO_REC").isNotNull(),    F.col("ESTADO_REC"))
-             .otherwise(F.lit("PENDIENTE"))
-        )
-        .withColumn(
-            "TS_DECISION_ANALISTA",
-            F.when(F.col("ESTADO_FUERTE").isNotNull(), F.col("TS_FUERTE"))
-             .when(F.col("ESTADO_REC").isNotNull(),    F.col("TS_REC"))
-             .otherwise(F.lit(None).cast("timestamp"))
-        )
-        .drop("ESTADO_FUERTE", "TS_FUERTE", "ESTADO_REC", "TS_REC")
-    )
-
-    return out
+WITH
+BASE_CENTRALIZADO AS (
+  SELECT
+    A.CODMES,
+    A.CODSOLICITUD,
+    B.CODINTERNOCOMPUTACIONAL,
+    A.ESTADOFINAL,
+    A.FLGCAMPANIA
+  FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_BASE_PDC A
+  LEFT JOIN CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_V.M_SOLICITUDCREDITOCONSUMO B
+    ON A.CODSOLICITUD = B.CODSOLICITUD
+  WHERE A.TIPOPERACION = 'CREDITO CONSUMO NUEVO'
+    AND A.ESTADOFINAL IN ('ACEPTADAS', 'DENEGADAS')
+),
+ 
+BASE_FLAGS AS (
+  SELECT
+    A.CODMES,
+    A.CODSOLICITUD,
+    A.CODINTERNOCOMPUTACIONAL,
+    C.CODCLAVEPARTYCLI,
+ 
+    CASE WHEN A.ESTADOFINAL = 'ACEPTADAS' THEN 1 ELSE 0 END AS FLGACEPTADAS,
+    CASE WHEN A.ESTADOFINAL = 'DENEGADAS' THEN 1 ELSE 0 END AS FLGDENEGADO,
+ 
+    CASE WHEN A.ESTADOFINAL='DENEGADAS' AND A.FLGCAMPANIAORD = 1 THEN 1 ELSE 0 END AS FLGDENEGADAS_CON_CAMPANIA,
+    CASE WHEN A.ESTADOFINAL='DENEGADAS' AND A.FLGCAMPANIAORD = 0 THEN 1 ELSE 0 END AS FLGDENEGADAS_SIN_CAMPANIA
+ 
+  FROM BASE_CENTRALIZADO A
+  LEFT JOIN CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_V.M_CLIENTE C
+    ON UPPER(TRIM(A.CODINTERNOCOMPUTACIONAL)) = UPPER(TRIM(C.CODINTERNOCOMPUTACIONAL))
+),
+ 
+SBS_DEUDA AS (
+  SELECT
+    CAST(date_format(FECDIA,'yyyyMM') AS INT) AS CODMESDEUDA,
+    CODCLAVEPARTYCLI,
+    SUM(MTODEUDASOL) AS MTODEUDASOL_SISTEMA,
+ 
+    MAX(
+      CASE
+        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) IN ('NORMAL') THEN 1
+        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) IN ('CON PROBLEMAS POTENCIALES(CPP)','CPP','CON PROBLEMAS POTENCIALES (CPP)') THEN 2
+        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) IN ('DEFICIENTE') THEN 3
+        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) IN ('DUDOSO') THEN 4
+        WHEN UPPER(TRIM(DESTIPCLASIFRIESGO)) IN ('PERDIDA','PÉRDIDA') THEN 5
+        ELSE 0
+      END
+    ) AS RIESGO_PEOR_ORD
+ 
+  FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.H_DEUDORSBSDETALLE
+  WHERE UPPER(TRIM(NBREMPSISTEMAFINANCIERO)) NOT LIKE 'BANCO DE CREDITO DEL PER%'
+  GROUP BY CAST(date_format(FECDIA,'yyyyMM') AS INT), CODCLAVEPARTYCLI
+),
+ 
+BASE_MESREF AS (
+  SELECT
+    b.*,
+    CAST(date_format(add_months(to_date(concat(CAST(b.CODMES AS STRING),'01'),'yyyyMMdd'),-1),'yyyyMM') AS INT) AS CODMES_SBS_MENOS_1,
+    b.CODMES AS CODMES_SBS_MES
+  FROM BASE_FLAGS b
+),
+ 
+BASE_SBS AS (
+  SELECT
+    x.*,
+ 
+    COALESCE(s1.MTODEUDASOL_SISTEMA,0) AS MTO_DEUDA_SBS_MES_MENOS_1,
+    COALESCE(s2.MTODEUDASOL_SISTEMA,0) AS MTO_DEUDA_SBS_MES,
+ 
+    COALESCE(s2.MTODEUDASOL_SISTEMA,0) - COALESCE(s1.MTODEUDASOL_SISTEMA,0) AS DELTA_DEUDA_SBS,
+ 
+    CASE
+      WHEN (COALESCE(s2.MTODEUDASOL_SISTEMA,0) - COALESCE(s1.MTODEUDASOL_SISTEMA,0)) > 3000 THEN 1
+      ELSE 0
+    END AS FLG_DESEMBOLSO_OTRO_BANCO_REGLA,
+ 
+    CASE COALESCE(s2.RIESGO_PEOR_ORD,0)
+      WHEN 1 THEN 'NORMAL'
+      WHEN 2 THEN 'CON PROBLEMAS POTENCIALES(CPP)'
+      WHEN 3 THEN 'DEFICIENTE'
+      WHEN 4 THEN 'DUDOSO'
+      WHEN 5 THEN 'PERDIDA'
+      ELSE 'SIN INFO'
+    END AS DESTIPCLASIFRIESGO_PEOR,
+ 
+    COALESCE(s2.RIESGO_PEOR_ORD,0) AS DESTIPCLASIFRIESGO_PEOR_ORD
+ 
+  FROM BASE_MESREF x
+  LEFT JOIN SBS_DEUDA s1
+    ON x.CODCLAVEPARTYCLI = s1.CODCLAVEPARTYCLI
+   AND x.CODMES_SBS_MENOS_1 = s1.CODMESDEUDA
+  LEFT JOIN SBS_DEUDA s2
+    ON x.CODCLAVEPARTYCLI = s2.CODCLAVEPARTYCLI
+   AND x.CODMES_SBS_MES = s2.CODMESDEUDA
+),
+ 
+AGG_FUNNEL AS (
+  SELECT
+    CODMES,
+    DESTIPCLASIFRIESGO_PEOR,
+    DESTIPCLASIFRIESGO_PEOR_ORD,
+ 
+    COUNT(1) AS TOT_SOLICITUDES,
+    SUM(FLGACEPTADAS) AS TOT_ACEPTADAS,
+    SUM(FLGDENEGADO) AS TOT_DENEGADAS,
+ 
+    SUM(FLGDENEGADAS_CON_CAMPANIA) AS TOT_ACEPTADAS_CON_CAMPANIA,
+    SUM(FLGDENEGADAS_SIN_CAMPANIA) AS TOT_ACEPTADAS_SIN_CAMPANIA,
+ 
+    SUM(FLG_DESEMBOLSO_OTRO_BANCO_REGLA) AS TOT_DESEMBOLSO_OTRO_BANCO,
+ 
+    SUM(CASE WHEN FLGDENEGADO = 1 AND FLG_DESEMBOLSO_OTRO_BANCO_REGLA = 1 THEN 1 ELSE 0 END) AS TOT_DENEGADOS_CON_DES_OTRO_BANCO,
+    SUM(CASE WHEN FLGDENEGADO = 1 AND FLG_DESEMBOLSO_OTRO_BANCO_REGLA = 1 THEN COALESCE(DELTA_DEUDA_SBS,0) ELSE 0 END) AS MTO_TOT_DENEGADOS_CON_DES_OTRO_BANCO,
+    
+    SUM(CASE WHEN FLGDENEGADAS_CON_CAMPANIA = 1 AND FLG_DESEMBOLSO_OTRO_BANCO_REGLA = 1 THEN 1 ELSE 0 END) AS TOT_DENEGADOS_CON_CAMP_OTRO_BANCO,
+    SUM(CASE WHEN FLGDENEGADAS_CON_CAMPANIA = 0 AND FLG_DESEMBOLSO_OTRO_BANCO_REGLA = 1 THEN 1 ELSE 0 END) AS TOT_DENEGADOS_SIN_CAMP_OTRO_BANCO
+ 
+  FROM BASE_SBS
+  GROUP BY
+    CODMES,
+    DESTIPCLASIFRIESGO_PEOR,
+    DESTIPCLASIFRIESGO_PEOR_ORD
+)
+ 
+SELECT *
+FROM AGG_FUNNEL
+ORDER BY
+  CODMES,
+  DESTIPCLASIFRIESGO_PEOR_ORD;
