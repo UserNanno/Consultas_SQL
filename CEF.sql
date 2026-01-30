@@ -1,3 +1,29 @@
+from pyspark.sql import functions as F
+
+audit_estados = (
+    df_estados.groupBy("CODMESEVALUACION")
+    .agg(
+        F.count("*").alias("rows_estados"),
+        F.countDistinct("CODSOLICITUD").alias("sol_unicas_estados"),
+        (F.count("*") - F.countDistinct("CODSOLICITUD")).alias("rows_extra_por_duplicados")
+    )
+    .orderBy("CODMESEVALUACION")
+)
+
+audit_last = (
+    df_last_estado.groupBy("CODMESEVALUACION")
+    .agg(
+        F.count("*").alias("rows_last"),
+        F.countDistinct("CODSOLICITUD").alias("sol_unicas_last")
+    )
+    .orderBy("CODMESEVALUACION")
+)
+
+audit = audit_estados.join(audit_last, "CODMESEVALUACION", "left")
+audit.show()
+
+
+
 # Comparación de solicitudes únicas por mes entre fuentes vs final
 comp = (
     df_estados.groupBy("CODMESEVALUACION")
