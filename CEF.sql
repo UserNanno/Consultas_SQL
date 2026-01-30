@@ -1,3 +1,36 @@
+# Comparación de solicitudes únicas por mes entre fuentes vs final
+comp = (
+    df_estados.groupBy("CODMESEVALUACION")
+      .agg(F.countDistinct("CODSOLICITUD").alias("sol_unicas_estados"))
+      .join(
+          df_last_estado.groupBy("CODMESEVALUACION").agg(F.countDistinct("CODSOLICITUD").alias("sol_unicas_final")),
+          on="CODMESEVALUACION", how="left"
+      )
+      .orderBy("CODMESEVALUACION")
+)
+
+comp.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 df_estados.groupBy("CODMESEVALUACION").count().orderBy("CODMESEVALUACION").show()
 
 +----------------+-----+
