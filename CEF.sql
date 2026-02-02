@@ -1,20 +1,28 @@
-FLGVENTANA = 
-VAR MesBaseIndex =
-   MAXX(ALLSELECTED(DimMes), DimMes[MesIndex])
-VAR MesEjeIndex =
-   SELECTEDVALUE(DimMes[MesIndex])
+En mi pagina V_GENERAL tengo un Grafico de columnas apiladas y lineas donde en eje X está CODMES de la tabla DIMMES. Asimismo, en el eje Y estan las dos medidas que estan en mi tabla MEDIDAS:
+CTDSOLICITUDESAPROBADAS = SUM(WEEKLY[CTDSOLICITUDESAPROBADAS])
+CTDSOLICITUDESDENEGADAS = SUM(WEEKLY[CTDSOLICITUDESDENEGADAS])
+en el campo del eje Y de Linea está PASS_RATE_UND = DIVIDE([CTDSOLICITUDESAPROBADAS],[CTDSOLICITUDES]) que también pertenece a mi tabla medidas
+Aqui mismo en este grafico hacemos y agregamos en información sobre herramientas a la pagina ZOOM_CEF
+En mi pagina ZOOM_CEF tengo el grafico de Grafico de columnas apiladas donde en el eje X tengo el campo CODMES de la tabla DIMMES_AXIS, en el Eje Y tengo la medida FLGVENTANA_CTDSOLICITUDES de mi tabla medidas:
+FLGVENTANA_CTDSOLICITUDES = 
+VAR HoverCODMES  = SELECTEDVALUE(DIMMES[CODMES_NUM])
+VAR HoverIndex   = LOOKUPVALUE(DIMMES[MESINDEX], DIMMES[CODMES_NUM], HoverCODMES)
+VAR AxisCODMES   = SELECTEDVALUE(DIMMES_AXIS[CODMES])
+VAR AxisIndex    = SELECTEDVALUE(DIMMES_AXIS[MesIndex])
 RETURN
 IF(
-   MesEjeIndex >= MesBaseIndex - 3
-&& MesEjeIndex <= MesBaseIndex,
+   NOT ISBLANK(HoverIndex)
+&& AxisIndex >= HoverIndex - 3
+&& AxisIndex <= HoverIndex,
    CALCULATE(
        [CTDSOLICITUDES],
-       REMOVEFILTERS(DimMes[CODMES])
+       REMOVEFILTERS(DIMMES),
+       REMOVEFILTERS(WEEKLY[CENTROATENCION]),
+       KEEPFILTERS( TREATAS({AxisCODMES}, DIMMES[CODMES_NUM]) )
    ),
    BLANK()
 )
-
-
+En leyenda de este mismo grafico esta la dimensión Producto de Weekly. Y esta hoja esta activado el permitir uso como herramienta de información
 
 DIMMES = 
 VAR Base =
@@ -31,4 +39,6 @@ ADDCOLUMNS(
 )
 
 
-RELACION WEEKLY[CODMES] - DIMMES[CODMES] - DE MUCHOS A UNO EN ESE ORDEN
+DIMMES_AXIS = DIMMES
+
+Considerar que la relación de ambos CODMES entre las tablas de WEEKLY y DIMMES esta WEEKLY[CODMES] + -> 1 DIMMES[CODMES] (ambos son texto)
