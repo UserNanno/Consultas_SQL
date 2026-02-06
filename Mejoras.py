@@ -16,8 +16,8 @@ def quitar_tildes(col):
     return c
 
 def limpiar_cesado(col):
-    # quita (CESADO) y dobles espacios
-    c = F.regexp_replace(col, r"\(CESADO\)", "")
+    c = col.cast("string")
+    c = F.regexp_replace(c, r"(?i)\(?\s*CESADO\s*\)?", "")
     c = F.regexp_replace(c, r"\s+", " ")
     return F.trim(c)
 
@@ -123,7 +123,7 @@ def match_persona_vs_organico(df_org_tokens, df_sf, codmes_sf_col, codsol_col, n
         .drop("rn")
     )
     
-
+    
 def to_decimal_monto(col):
     s = col.cast("string")
     s = F.regexp_replace(s, u"\u00A0", " ")
@@ -134,7 +134,6 @@ def to_decimal_monto(col):
     s = F.when((F.instr(s, ",") > 0) & (F.instr(s, ".") > 0), F.regexp_replace(s, r"\.", "")).otherwise(s)
     s = F.when(F.instr(s, ",") > 0, F.regexp_replace(s, ",", ".")).otherwise(s)
     return s.cast(DecimalType(18, 2))
-    
     
 def load_organico(spark, path_organico):
     df_raw = (
@@ -404,6 +403,98 @@ def enrich_productos_con_organico(df_productos, df_org_tokens):
     return df_enriq
 
 
+def build_estado_analista_snapshot(df_estados_enriq):
+    """
+    Devuelve 1 fila por CODSOLICITUD con:
+    - ESTADOSOLICITUDANALISTA: última "decisión" del analista con prioridad:
+        1) APROBADO/RECHAZADO (más reciente)
+        2) RECUPERADA (más reciente)
+        3) PENDIENTE (si nunca hubo APROBADO/RECHAZADO/RECUPERADA)
+    - TS_DECISION_ANALISTA: timestamp del evento donde ocurrió la decisión elegida (si existe)
+    - TS_ULTIMO_EVENTO_PASO_ANALISTA: timestamp del último evento del paso analista (incluye PENDIENTE)
+    """
+
+    # 1) Definir "paso de analista" (misma lógica que atribución)
+    is_tc  = F.col("PROCESO").like("%APROBACION CREDITOS TC%")
+    is_cef = F.col("PROCESO").isin(
+        "CO SOLICITUD APROBACIONES TLMK",
+        "SFCP APROBACIONES EDUCATIVO",
+        "CO SOLICITUD APROBACIONES"
+    )
+
+    paso_tc_analista  = (F.col("NBRPASO") == "APROBACION DE CREDITOS ANALISTA")
+    paso_cef_analista = (F.col("NBRPASO") == "EVALUACION DE SOLICITUD")
+
+    es_paso_analista = (is_tc & paso_tc_analista) | (is_cef & paso_cef_analista)
+
+    df_paso = df_estados_enriq.filter(es_paso_analista)
+
+    # 2) Último evento del paso analista (incluye PENDIENTE)
+    w_evt = Window.partitionBy("CODSOLICITUD").orderBy(
+        F.col("FECHORINICIOEVALUACION").desc_nulls_last(),
+        F.col("FECHORFINEVALUACION").desc_nulls_last()
+    )
+
+    df_last_evt = (
+        df_paso
+        .withColumn("rn_evt", F.row_number().over(w_evt))
+        .filter(F.col("rn_evt") == 1)
+        .select(
+            "CODSOLICITUD",
+            F.col("FECHORINICIOEVALUACION").alias("TS_ULTIMO_EVENTO_PASO_ANALISTA")
+        )
+    )
+
+    # 3) Última decisión fuerte (APROBADO/RECHAZADO) ignorando PENDIENTE
+    df_fuerte = df_paso.filter(F.col("ESTADOSOLICITUDPASO").isin("APROBADO", "RECHAZADO"))
+
+    df_last_fuerte = (
+        df_fuerte
+        .withColumn("rn", F.row_number().over(w_evt))
+        .filter(F.col("rn") == 1)
+        .select(
+            "CODSOLICITUD",
+            F.col("ESTADOSOLICITUDPASO").alias("ESTADO_FUERTE"),
+            F.col("FECHORINICIOEVALUACION").alias("TS_FUERTE")
+        )
+    )
+
+    # 4) Si no hubo fuerte, última decisión alternativa: RECUPERADA
+    df_rec = df_paso.filter(F.col("ESTADOSOLICITUDPASO") == "RECUPERADA")
+
+    df_last_rec = (
+        df_rec
+        .withColumn("rn", F.row_number().over(w_evt))
+        .filter(F.col("rn") == 1)
+        .select(
+            "CODSOLICITUD",
+            F.col("ESTADOSOLICITUDPASO").alias("ESTADO_REC"),
+            F.col("FECHORINICIOEVALUACION").alias("TS_REC")
+        )
+    )
+
+    # 5) Ensamble final con prioridad: fuerte > recuperada > pendiente
+    out = (
+        df_last_evt
+        .join(df_last_fuerte, on="CODSOLICITUD", how="left")
+        .join(df_last_rec,   on="CODSOLICITUD", how="left")
+        .withColumn(
+            "ESTADOSOLICITUDANALISTA",
+            F.when(F.col("ESTADO_FUERTE").isNotNull(), F.col("ESTADO_FUERTE"))
+             .when(F.col("ESTADO_REC").isNotNull(),    F.col("ESTADO_REC"))
+             .otherwise(F.lit("PENDIENTE"))
+        )
+        .withColumn(
+            "TS_DECISION_ANALISTA",
+            F.when(F.col("ESTADO_FUERTE").isNotNull(), F.col("TS_FUERTE"))
+             .when(F.col("ESTADO_REC").isNotNull(),    F.col("TS_REC"))
+             .otherwise(F.lit(None).cast("timestamp"))
+        )
+        .drop("ESTADO_FUERTE", "TS_FUERTE", "ESTADO_REC", "TS_REC")
+    )
+
+    return out
+
 
 def build_last_estado_snapshot(df_estados_enriq):
     w_last = Window.partitionBy("CODSOLICITUD").orderBy(
@@ -454,8 +545,6 @@ def build_productos_snapshot(df_productos_enriq):
         .drop("rn_prod")
     )
 
-
-
 def add_producto_tipo(df_final):
     is_tc  = F.col("PROCESO").like("%APROBACION CREDITOS TC%")
     is_cef = F.col("PROCESO").isin(
@@ -471,6 +560,7 @@ def add_producto_tipo(df_final):
     )
     
     
+
 def build_matanalista_final(df_estados_enriq, df_prod_snap):
 
     # -------------------------
@@ -561,6 +651,9 @@ def build_matanalista_final(df_estados_enriq, df_prod_snap):
 
     return df_final
     
+    
+
+
 def add_matsuperior_from_organico(df_final, df_org):
     df_org_key = (
         df_org
@@ -601,23 +694,34 @@ def apply_powerapps_fallback(df_final, df_apps):
         .dropDuplicates(["CODSOLICITUD"])
     )
 
+    df_out = df_final.join(df_apps_sel, on="CODSOLICITUD", how="left")
+
+    cond_ambos_no_nulos = F.col("MATANALISTA_FINAL").isNotNull() & F.col("MATANALISTA_APPS").isNotNull()
+    cond_no_coinciden   = F.col("MATANALISTA_FINAL") != F.col("MATANALISTA_APPS")
+    cond_override       = cond_ambos_no_nulos & cond_no_coinciden
+
     df_out = (
-        df_final
-        .join(df_apps_sel, on="CODSOLICITUD", how="left")
-        .withColumn("MATANALISTA_FINAL", F.coalesce(F.col("MATANALISTA_FINAL"), F.col("MATANALISTA_APPS")))
-        .withColumn("ESTADOSOLICITUDPASO", F.coalesce(F.col("ESTADOSOLICITUDPASO"), F.col("RESULTADOANALISTA_APPS")))
-        .withColumn("NBRPRODUCTO", F.coalesce(F.col("NBRPRODUCTO"), F.col("PRODUCTO_APPS")))
+        df_out
+        .withColumn(
+            "MATANALISTA_FINAL",
+            F.when(cond_override, F.col("MATANALISTA_APPS"))                       # override
+             .otherwise(F.coalesce(F.col("MATANALISTA_FINAL"), F.col("MATANALISTA_APPS")))  # fallback nulos
+        )
         .withColumn(
             "ORIGEN_MATANALISTA",
-            F.when(F.col("ORIGEN_MATANALISTA").isNull() & F.col("MATANALISTA_APPS").isNotNull(), F.lit("APPS_MAT"))
+            F.when(cond_override, F.lit("APPS_OVERRIDE"))
+             .when(F.col("ORIGEN_MATANALISTA").isNull() & F.col("MATANALISTA_APPS").isNotNull(), F.lit("APPS_MAT"))
              .otherwise(F.col("ORIGEN_MATANALISTA"))
         )
+        .withColumn("ESTADOSOLICITUDPASO", F.coalesce(F.col("ESTADOSOLICITUDPASO"), F.col("RESULTADOANALISTA_APPS")))
+        .withColumn("NBRPRODUCTO",        F.coalesce(F.col("NBRPRODUCTO"),        F.col("PRODUCTO_APPS")))
         .drop("MATANALISTA_APPS", "RESULTADOANALISTA_APPS", "PRODUCTO_APPS")
     )
+
     return df_out
     
     
-    
+
 # 12.1 Staging
 df_org       = load_organico(spark, BASE_DIR_ORGANICO)
 df_org_tokens= build_org_tokens(df_org)
@@ -630,9 +734,15 @@ df_apps      = load_powerapps(spark, PATH_PA_SOLICITUDES)
 df_estados_enriq   = enrich_estados_con_organico(df_estados, df_org_tokens)
 df_productos_enriq = enrich_productos_con_organico(df_productos, df_org_tokens)
 
+# NUEVO: snapshot de decisión analista + TS
+df_estado_analista = build_estado_analista_snapshot(df_estados_enriq)
+
 # 12.3 Snapshots (1 fila por solicitud)
 df_last_estado = build_last_estado_snapshot(df_estados_enriq)
 df_prod_snap   = build_productos_snapshot(df_productos_enriq)
+
+# 12.3.1 (opcional pero recomendado): adjuntar campos analista al snapshot base
+df_last_estado = df_last_estado.join(df_estado_analista, on="CODSOLICITUD", how="left")
 
 # 12.4 Atribución analista final + origen (MAT1/MAT2/MAT3/MAT4)
 df_matanalista = build_matanalista_final(df_estados_enriq, df_prod_snap)
@@ -648,7 +758,6 @@ df_final = (
         "TS_PRODUCTOS"
     ), on="CODSOLICITUD", how="left")
 )
-
 # 12.6 Producto (TC/CEF)
 df_final = add_producto_tipo(df_final)
 
@@ -680,6 +789,10 @@ df_final = df_final.select(
     "FECINICIOEVALUACION_ULT",
     "FECFINEVALUACION_ULT",
 
+    "ESTADOSOLICITUDANALISTA",
+    "TS_DECISION_ANALISTA",
+    "TS_ULTIMO_EVENTO_PASO_ANALISTA",
+
     "NBRPRODUCTO",
     "ETAPA",
     "TIPACCION",
@@ -694,6 +807,9 @@ df_final = df_final.select(
     "MOTIVOMALADERIVACION",
     "SUBMOTIVOMALADERIVACION",
 )
+
+
+
 
 
 df_final.write \
