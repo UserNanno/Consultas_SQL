@@ -21,8 +21,7 @@ df["RESULTADOANALISTA"] = df["RESULTADOANALISTA"].astype(str).str.strip().str.up
 
 df_clasificacion = pd.read_csv(
     "INPUT/CLASIFICACION_ANALISTAS.csv",
-    delimiter=";",
-    encoding="latin1",
+    encoding="utf-8-sig",
     usecols=["NOMBRE", "EXPERTISE"]
 )
 df_clasificacion = df_clasificacion.drop_duplicates(subset=["NOMBRE"])
@@ -30,7 +29,7 @@ df_clasificacion = df_clasificacion.drop_duplicates(subset=["NOMBRE"])
 df_equipos = pd.read_csv(
     "INPUT/EQUIPOS.csv",
     delimiter=";",
-    encoding="latin1",
+    encoding="utf-8-sig",
     usecols=["Analista nombre completo", "ANALISTA", "equipo"]
 ).rename(columns={"Analista nombre completo": "NOMBRECOMPLETO", "equipo": "EQUIPO"})
 df_equipos["ANALISTA"] = df_equipos["ANALISTA"].astype(str).str.strip().str.upper()
@@ -55,17 +54,12 @@ df_tp["FECHAHORA"] = created_lima.dt.tz_localize(None)
 
 
 
-
-
 df_diario = df_tp[[
     "OPORTUNIDAD", "TIPOPRODUCTO", "RESULTADOANALISTA",
     "ANALISTA", "FECHA", "HORA", "EXPERTISE", "EQUIPO", "FECHAHORA"
 ]]
 
 df_diario = df_diario.drop_duplicates()
-
-
-
 
 
 
@@ -105,12 +99,13 @@ def parse_fecha_hora_esp(series):
 
 
 
+
 import pandas as pd
 import re
 from unidecode import unidecode
 
-df_tcstock = pd.read_csv("INPUT/REPORT_TC.csv", delimiter=";", encoding="latin1")
-df_cef_tc = pd.read_csv("INPUT/REPORT_CEF_TC.csv", delimiter=";", encoding="latin1", low_memory=False)
+df_tcstock = pd.read_csv("INPUT/REPORT_TC.csv", encoding="latin1")
+df_cef_tc = pd.read_csv("INPUT/REPORT_CEF_TC.csv", encoding="latin1", low_memory=False)
 
 df_tcstock = df_tcstock[["Nombre del registro", "Estado", "Fecha de inicio del paso"]].rename(columns={
     "Nombre del registro": "OPORTUNIDAD",
@@ -176,12 +171,12 @@ df_pendientes_tcstock = df_pendientes_tcstock.drop_duplicates()
 
 
 
+
 import pandas as pd
 import numpy as np
 
 df_cef = pd.read_csv(
     "INPUT/REPORT_CEF.csv",
-    delimiter=";",
     encoding="latin1",
     usecols=[
         "Nombre de la oportunidad",
@@ -226,6 +221,9 @@ df_pendientes_cef = df_cef[[
 ]]
 
 df_pendientes_cef = df_pendientes_cef.drop_duplicates()
+
+
+
 
 
 
@@ -280,7 +278,6 @@ df_pendientes_tcstock_final = df_pendientes_tcstock_final.drop_duplicates()
 
 
 
-
 df_pendientes_cef_base = df_pendientes_cef.loc[
     df_pendientes_cef["ESTADO"] == "Pendiente",
     ["OPORTUNIDAD", "DESPRODUCTO", "ESTADO", "ANALISTA", "FECINICIOEVALUACION"]
@@ -318,8 +315,6 @@ df_pendientes_cef_final = df_pendientes_cef_base.rename(columns={
 df_pendientes_cef_final["FLGPENDIENTE"] = 1
 
 df_pendientes_cef_final = df_pendientes_cef_final.drop_duplicates()
-
-
 
 
 
@@ -378,95 +373,86 @@ for name in ["df_pendientes_tcstock_final", "df_pendientes_cef_final"]:
 
 
 
----------------------------------------------------------------------------
-ValueError                                Traceback (most recent call last)
-Cell In[24], line 8
-      1 trabajo_dias = (
-      2     df_diario[["ANALISTA", "FECHA"]]
-      3     .drop_duplicates()
-      4     .assign(TRABAJO=1)
-      5 )
-      6 df_pendientes_tcstock_final = (
-      7     df_pendientes_tcstock_final
-----> 8       .merge(trabajo_dias, on=["ANALISTA", "FECHA"], how="left")
-      9       .assign(
-     10           TRABAJO=lambda x: x["TRABAJO"].fillna(0),
-     11           FLGPENDIENTE=lambda x: np.where(x["TRABAJO"] == 1, 1, 0)
-     12       )
-     13       .drop(columns=["TRABAJO"])
-     14 )
-     16 df_pendientes_cef_final = (
-     17     df_pendientes_cef_final
-     18       .merge(trabajo_dias, on=["ANALISTA", "FECHA"], how="left")
-   (...)     23       .drop(columns=["TRABAJO"])
-     24 )
-     26 """ LOP - MEJORA
-     27 for name in ["df_pendientes_tcstock_final", "df_pendientes_cef_final"]:
-     28     df = locals()[name]
-   (...)     37     locals()[name] = df
-     38 """
+df_diario["FLGPENDIENTE"] = 0
 
-File D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\pandas\core\frame.py:10859, in DataFrame.merge(self, right, how, on, left_on, right_on, left_index, right_index, sort, suffixes, copy, indicator, validate)
-  10840 @Substitution("")
-  10841 @Appender(_merge_doc, indents=2)
-  10842 def merge(
-   (...)  10855     validate: MergeValidate | None = None,
-  10856 ) -> DataFrame:
-  10857     from pandas.core.reshape.merge import merge
-> 10859     return merge(
-  10860         self,
-  10861         right,
-  10862         how=how,
-  10863         on=on,
-  10864         left_on=left_on,
-  10865         right_on=right_on,
-  10866         left_index=left_index,
-  10867         right_index=right_index,
-  10868         sort=sort,
-  10869         suffixes=suffixes,
-  10870         copy=copy,
-  10871         indicator=indicator,
-  10872         validate=validate,
-  10873     )
+df_final_validado = pd.concat(
+    [df_diario, df_pendientes_tcstock_final, df_pendientes_cef_final],
+    ignore_index=True
+)
 
-File D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\pandas\core\reshape\merge.py:170, in merge(left, right, how, on, left_on, right_on, left_index, right_index, sort, suffixes, copy, indicator, validate)
-    155     return _cross_merge(
-    156         left_df,
-    157         right_df,
-   (...)    167         copy=copy,
-    168     )
-    169 else:
---> 170     op = _MergeOperation(
-    171         left_df,
-    172         right_df,
-    173         how=how,
-    174         on=on,
-    175         left_on=left_on,
-    176         right_on=right_on,
-    177         left_index=left_index,
-    178         right_index=right_index,
-    179         sort=sort,
-    180         suffixes=suffixes,
-    181         indicator=indicator,
-    182         validate=validate,
-    183     )
-    184     return op.get_result(copy=copy)
+df_final_validado["FLGPENDIENTE"] = df_final_validado["FLGPENDIENTE"].map({0: "NO", 1: "SI"})
 
-File D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\pandas\core\reshape\merge.py:807, in _MergeOperation.__init__(self, left, right, how, on, left_on, right_on, left_index, right_index, sort, suffixes, indicator, validate)
-    803 self._validate_tolerance(self.left_join_keys)
-    805 # validate the merge keys dtypes. We may need to coerce
-    806 # to avoid incompatible dtypes
---> 807 self._maybe_coerce_merge_keys()
-    809 # If argument passed to validate,
-    810 # check if columns specified as unique
-    811 # are in fact unique.
-    812 if validate is not None:
 
-File D:\Datos de Usuarios\T72496\Desktop\MODELOS_RPTs\venv\Lib\site-packages\pandas\core\reshape\merge.py:1513, in _MergeOperation._maybe_coerce_merge_keys(self)
-   1511 # datetimelikes must match exactly
-   1512 elif needs_i8_conversion(lk.dtype) and not needs_i8_conversion(rk.dtype):
--> 1513     raise ValueError(msg)
-   1514 elif not needs_i8_conversion(lk.dtype) and needs_i8_conversion(rk.dtype):
-   1515     raise ValueError(msg)
 
-ValueError: You are trying to merge on datetime64[ns] and object columns for key 'FECHA'. If you wish to proceed you should use pd.concat
+
+
+df_final_validado.to_csv(
+    "OUTPUT/REPORTE_FINAL_VALIDADO.csv", index=False, encoding="utf-8-sig"
+)
+
+
+
+
+
+
+
+
+from datetime import time
+
+df_final_validado_logica = df_final_validado.copy()
+
+df_final_validado_logica["FECHAHORA"] = pd.to_datetime(df_final_validado_logica["FECHAHORA"], errors="coerce")
+df_final_validado_logica = (
+    df_final_validado_logica
+      .sort_values(["OPORTUNIDAD", "FECHAHORA"])
+      .groupby("OPORTUNIDAD", as_index=False)
+      .tail(1)
+)
+
+df_final_validado_logica["RESULTADOANALISTA"] = df_final_validado_logica["RESULTADOANALISTA"].astype(str).str.upper().str.strip()
+df_final_validado_logica["TIPOPRODUCTO"] = df_final_validado_logica["TIPOPRODUCTO"].astype(str).str.upper().str.strip()
+df_final_validado_logica["FLGPENDIENTE"] = df_final_validado_logica["FLGPENDIENTE"].astype(str).str.upper().str.strip()
+
+# CLASIF SIN TOLERANCIA
+def clasificar_estado(row):
+    res = row["RESULTADOANALISTA"]
+    tipo = row["TIPOPRODUCTO"]
+    flg = row["FLGPENDIENTE"]
+    hora = row["FECHAHORA"].time() if pd.notnull(row["FECHAHORA"]) else None
+
+    if res in ["APROBADO POR ANALISTA DE CREDITO", "DENEGADO POR ANALISTA DE CREDITO"]:
+        return "ATENCIONES"
+
+    if res in ["DEVUELTO"]:
+        return "DEVUELTO"
+
+    if res == "FACA":
+        return "FACA"
+
+    if res == "DEVOLVER AL GESTOR" and tipo == "CRÉDITO VEHICULAR":
+        return "ATENCIONES"
+
+    if res in ["PENDIENTE", "ENVIADO A ANALISTA DE CRÉDITOS"] or flg in ["SI", "1"]:
+        if hora:
+            if time(8, 0) <= hora <= time(19, 30):
+                return "PENDIENTE (HORA HABIL)"
+            else:
+                return "PENDIENTE (HORA NO HABIL)"
+        else:
+            return "PENDIENTE"
+
+
+    # Resto
+    return "EN PROCESO"
+
+df_final_validado_logica["ESTADO_OPORTUNIDAD"] = df_final_validado_logica.apply(clasificar_estado, axis=1)
+
+
+
+
+
+
+
+df_final_validado_logica.to_csv(
+    "OUTPUT/REPORTE_FINAL_VALIDADO_LOGICA.csv", index=False, encoding="utf-8-sig"
+)
