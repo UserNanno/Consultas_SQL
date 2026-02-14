@@ -1,11 +1,14 @@
-# DIAS UTILES DEL MES ACTUAL =
-VAR MesActual = MAX(Fact[CODMES])
-VAR DiasUtiles =
-    CALCULATE(
-        MAX(Fact[ACUM_DIA_UTIL_EQ_MES]),
-        Fact[CODMES] = MesActual
-    )
+Slicer Dias Utiles =
+GENERATESERIES(0.5, 31, 0.5)
+
+
+Filtro Dias Utiles =
+VAR MaxSeleccionado =
+    MAX('Slicer Dias Utiles'[Value])
 RETURN
-"# DIAS UTILES DEL MES ACTUAL" 
-& UNICHAR(10) & UNICHAR(10) &
-FORMAT(DiasUtiles, "0.0")
+IF(
+    MAX(Fact[ACUM_DIA_UTIL_EQ_MES]) <= MaxSeleccionado
+        && MAX(Fact[PESO_DIA_UTIL_EQ]) > 0,
+    1,
+    0
+)
