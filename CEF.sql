@@ -17,6 +17,20 @@ tasas AS (
     total_aprobadas / total_solicitudes AS tasa_segmento,
     total_solicitudes / SUM(total_solicitudes) OVER (PARTITION BY CODMES) AS peso_segmento
   FROM base
+),
+WITH t1 AS (
+  SELECT * FROM tasas WHERE CODMES = '202401'
+),
+t2 AS (
+  SELECT * FROM tasas WHERE CODMES = '202402'
 )
 
-SELECT * FROM tasas;
+SELECT
+  t1.SEGMENTO,
+  (t2.peso_segmento - t1.peso_segmento) * t1.tasa_segmento AS efecto_mix,
+  t1.peso_segmento * (t2.tasa_segmento - t1.tasa_segmento) AS efecto_performance,
+  (t2.peso_segmento - t1.peso_segmento) * 
+  (t2.tasa_segmento - t1.tasa_segmento) AS efecto_interaccion
+FROM t1
+JOIN t2
+ON t1.SEGMENTO = t2.SEGMENTO;
