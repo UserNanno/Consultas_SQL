@@ -1,84 +1,173 @@
-Mira tengo esta query
+Mira esto tenia en mi jupyter notebok que trabajaba de forma local
+import pandas as pd
+import glob, os, unicodedata
 
-WITH
-HM_SOLICITUDES_SCRM AS (
-	SELECT
-		CODMES,
-		CODSOLICITUD,
-		CODINTERNOCOMPUTACIONAL,
-		UPPER(TRIM(DESPRODUCTO)) AS DESPRODUCTO,
-		FECSOLICITUD,
-		MTOSOLICITADO,
-		MTOAPROBADO,
-		FECDESEMBOLSO,
-		MTODESEMBOLSADO
-	FROM CATALOG_LHCL_PROD_BCP.BCP_EDV_RBMBDN.T72496_HM_SOLICITUDES_SCRM
-	WHERE CENTROATENCION = 'CENTRALIZADO' AND DESTIPOPERACION = 'TARJETA CREDITO NUEVA' AND FLGDESEMBOLSADO = 1
-),
-M_CLIENTE AS (
-	SELECT
-		CODCLAVEPARTYCLI,
-		CODINTERNOCOMPUTACIONAL
-	FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.M_CLIENTE
-),
-M_PRODUCTOTIOAUX AS (
-	SELECT
-		CODPRODUCTO,
-		UPPER(TRIM(DESPRODUCTO)) AS DESPRODUCTO
-	FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.M_PRODUCTOTIOAUX
-),
-M_CUENTATARJETACREDITO AS (
-	SELECT
-		CODCLAVECTA,
-		CODCLAVEPARTYCLI,
-		CODPRODUCTO,
-		FECINCREMENTOLINEA,
-		COALESCE(FECULTCOMPRA, FECULTTRX) AS FECULTMOVIMIENTO,
-		ROW_NUMBER() OVER (
-			PARTITION BY CODCLAVECTA
-			ORDER BY FECINCREMENTOLINEA ASC
-		) AS RN
-	FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.M_CUENTATARJETACREDITO
-	WHERE DATE(FECSOLICITUDTARJETA) >= FECINCREMENTOLINEA AND FECULTDIAPAGO IS NOT NULL
-),
-M_CUENTATARJETACREDITO_UNICO AS (
-	SELECT
-		CODCLAVECTA,
-		CODCLAVEPARTYCLI,
-		CODPRODUCTO,
-		FECULTMOVIMIENTO,
-		FECINCREMENTOLINEA
-	FROM M_CUENTATARJETACREDITO
-	WHERE RN = 1
-),
-TP_BASE_1 AS (
-	SELECT
-		A.CODSOLICITUD,
-		A.FECSOLICITUD,
-		A.CODINTERNOCOMPUTACIONAL,
-		B.CODCLAVEPARTYCLI,
-		C.CODPRODUCTO,
-		A.MTOSOLICITADO,
-		A.MTOAPROBADO,
-		A.MTODESEMBOLSADO,
-		A.FECDESEMBOLSO
-	FROM HM_SOLICITUDES_SCRM A
-	LEFT JOIN M_CLIENTE B ON (A.CODINTERNOCOMPUTACIONAL = B.CODINTERNOCOMPUTACIONAL)
-	LEFT JOIN M_PRODUCTOTIOAUX C ON (A.DESPRODUCTO = C.DESPRODUCTO)
+pd.set_option("display.max_columns", None)
+pd.set_option("display.max_rows", None)
+pd.set_option("display.width", None)
+
+def quitar_tildes(s):
+    if isinstance(s, str):
+        return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    return s
+
+def norm_txt(s):
+    # normaliza - tildes -> strip -> upper
+    if not isinstance(s, str):
+        return s if pd.notna(s) else s
+    return quitar_tildes(s).strip().upper()
+
+
+
+PATH_POWERAPP = "INPUT/POWERAPP/"
+FILES = glob.glob(os.path.join(PATH_POWERAPP, "1n_Apps_202*.csv"))
+
+df = pd.concat((pd.read_csv(f) for f in FILES), ignore_index=True)
+
+cols_selected = [
+    'Title', 'FechaAsignacion', 'Tipo de Producto', 'ResultadoAnalista',
+    'Mail', 'Motivo Resultado Analista', 'AñoMes', 'Created',
+    'Motivo_MD', 'Submotivo_MD'
+]
+tp_powerapp = df[cols_selected].rename(columns={
+    'Title': 'CODSOLICITUD',
+    'FechaAsignacion': 'FECASIGNACION',
+    'Tipo de Producto': 'PRODUCTO',
+    'ResultadoAnalista': 'RESULTADOANALISTA',
+    'Mail': 'CORREO',
+    'Motivo Resultado Analista': 'MOTIVORESULTADOANALISTA',
+    'AñoMes': 'CODMES',
+    'Created': 'CREATED',
+    'Motivo_MD': 'MOTIVOMALADERIVACION',
+    'Submotivo_MD': 'SUBMOTIVOMALADERIVACION'
+})
+
+# Fechas/horas (UTC -> America/Lima)
+created_lima = (
+    pd.to_datetime(tp_powerapp["CREATED"], utc=True, errors="coerce")
+      .dt.tz_convert("America/Lima")
+      .dt.floor("min")
 )
-	SELECT
-		A.CODSOLICITUD,
-		A.FECSOLICITUD,
-		A.CODINTERNOCOMPUTACIONAL,
-		A.MTOSOLICITADO,
-		A.MTODESEMBOLSADO,
-		A.FECDESEMBOLSO,
-		B.FECINCREMENTOLINEA,
-		B.FECULTMOVIMIENTO,
-		B.CODCLAVECTA
-	FROM TP_BASE_1 A
-	LEFT JOIN M_CUENTATARJETACREDITO_UNICO B ON (A.CODCLAVEPARTYCLI = B.CODCLAVEPARTYCLI AND A.CODPRODUCTO = B.CODPRODUCTO AND A.FECDESEMBOLSO = B.FECINCREMENTOLINEA AND B.FECINCREMENTOLINEA <= A.FECDESEMBOLSO + INTERVAL 30 DAYS)
+
+tp_powerapp.loc[:, "FECCREACION"] = created_lima.dt.date
+tp_powerapp.loc[:, "HORACREACION"]  = created_lima.dt.time
+tp_powerapp.loc[:, "FECHORACREACION"] = created_lima.dt.tz_localize(None)
 
 
-La cual me ayuda a identificar las tarjetas de credito que han sido emitidas (desembolsadas) ver si han sido usadas (ulttrx) e identificar su CODCLAVECTA. Pero hay un tema, esto me funciona perfecto pero en algunos registros el LEFT JOIN M_CUENTATARJETACREDITO_UNICO B me salen todos nulos y es por esta conidcion  AND B.FECINCREMENTOLINEA <= A.FECDESEMBOLSO + INTERVAL 30 DAYS) en el ON. Quizá es un problema de la data que una tarjeta que se emitio (desembolso) el 2 de enero del 2025 salga como incremento de linea recien el 5 de enero del 2026. Por tal motivo quiero quitar eso pero concatenar loos que no me salian NULL + los que me saldran cuando quite esa condicion en el ON, como si fuera un UNION ALL o algo asi, me entiendes? Podría hacerlo en dos querys pero no es la idea.
 
+tp_powerapp = tp_powerapp.sort_values(
+    by=["FECHORACREACION", "FECASIGNACION"],
+    ascending=[False, False],
+    na_position="last"  # NaT al final
+)
+
+tp_powerapp_clean = tp_powerapp.drop_duplicates(subset=["CODSOLICITUD"], keep="first").copy()
+
+
+# Normalizacion de texto
+cols_norm = [
+    'PRODUCTO', 'RESULTADOANALISTA',
+    'MOTIVORESULTADOANALISTA', 'MOTIVOMALADERIVACION', 'SUBMOTIVOMALADERIVACION'
+]
+for col in cols_norm:
+    tp_powerapp_clean.loc[:, col] = tp_powerapp_clean[col].apply(norm_txt)
+
+tp_powerapp_clean.loc[:, "RESULTADOANALISTA"] = tp_powerapp_clean["RESULTADOANALISTA"].replace({
+    "DENEGADO POR ANALISTA DE CREDITO": "DENEGADO",
+    "APROBADO POR ANALISTA DE CREDITO": "APROBADO",
+    "DEVOLVER AL GESTOR": "DEVUELTO AL GESTOR"
+})
+
+
+	--- Estoy ytratando de replicarlo en databricks con spark
+
+	
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
+from pyspark.sql.types import DecimalType
+
+PATH_PA_SOLICITUDES = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/POWERAPPS/1n_Apps_*.csv"
+
+def parse_fecha_hora_esp(col):
+    s = col.cast("string")
+    s = F.regexp_replace(s, u"\u00A0", " ")
+    s = F.regexp_replace(s, u"\u202F", " ")
+    s = F.lower(F.trim(s))
+    s = F.regexp_replace(s, r"\s+", " ")
+    s = F.regexp_replace(s, r"(?i)a\W*m\W*", "AM")
+    s = F.regexp_replace(s, r"(?i)p\W*m\W*", "PM")
+    return F.to_timestamp(s, "dd/MM/yyyy hh:mm a")
+
+
+
+def quitar_tildes(col):
+    c = F.regexp_replace(col, "[ÁÀÂÄáàâä]", "A")
+    c = F.regexp_replace(c, "[ÉÈÊËéèêë]", "E")
+    c = F.regexp_replace(c, "[ÍÌÎÏíìîï]", "I")
+    c = F.regexp_replace(c, "[ÓÒÔÖóòôö]", "O")
+    c = F.regexp_replace(c, "[ÚÙÛÜúùûü]", "U")
+    return c
+
+def norm_txt(col):
+    """
+    Normalización 'robusta':
+    - upper
+    - quitar tildes
+    - normalizar espacios
+    - dejar letras/números/espacios (reduce ruido de caracteres especiales)
+    """
+    c = col.cast("string")
+    c = F.upper(c)
+    c = quitar_tildes(c)
+    c = F.regexp_replace(c, u"\u00A0", " ")
+    c = F.regexp_replace(c, u"\u202F", " ")
+    c = F.regexp_replace(c, r"\s+", " ")
+    c = F.trim(c)
+    c = F.regexp_replace(c, r"[^A-Z0-9 ]", " ")
+    c = F.regexp_replace(c, r"\s+", " ")
+    c = F.trim(c)
+    return c
+
+def norm_col(df, cols):
+    for c in cols:
+        df = df.withColumn(c, norm_txt(F.col(c)))
+    return df
+
+
+def load_powerapps(spark, path_apps):
+    df = (
+        spark.read.format("csv")
+        .option("header", "true")
+        .option("sep", ";")
+        .option("encoding", "utf-8")
+        .option("ignoreLeadingWhiteSpace", "true")
+        .option("ignoreTrailingWhiteSpace", "true")
+        .load(path_apps)
+        .select(
+            F.col("Title").alias("CODSOLICITUD"),
+            F.col("FechaAsignacion").alias("FECASIGNACION"),
+            F.col("Tipo de Producto").alias("PRODUCTO"),
+            F.col("ResultadoAnalista").alias("RESULTADOANALISTA"),
+            F.col("Mail").alias("CORREO"),
+            F.col("Motivo Resultado Analista").alias("MOTIVORESULTADOANALISTA"),
+            F.col("AñoMes").alias("CODMES"),
+            F.col("Created").alias("CREATED"),
+            F.col("Motivo_MD").alias("MOTIVOMALADERIVACION"),
+            F.col("Submotivo_MD").alias("SUBMOTIVOMALADERIVACION"),
+        )
+    )
+
+    df = df.withColumn("CODSOLICITUD", F.trim(F.col("CODSOLICITUD").cast("string")))
+    df = norm_col(df, [
+        "PRODUCTO", "RESULTADOANALISTA", "MOTIVORESULTADOANALISTA",
+        "MOTIVOMALADERIVACION", "SUBMOTIVOMALADERIVACION"
+    ])
+
+    return df
+
+
+
+df_apps = load_powerapps(spark, PATH_PA_SOLICITUDES)
+
+
+Voy por buen camino? ayudame a completarlo y terminarlo
