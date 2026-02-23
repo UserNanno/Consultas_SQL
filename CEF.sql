@@ -1,3 +1,5 @@
+Mira tengo esta query
+
 WITH
 HM_SOLICITUDES_SCRM AS (
 	SELECT
@@ -37,7 +39,7 @@ M_CUENTATARJETACREDITO AS (
 			ORDER BY FECINCREMENTOLINEA ASC
 		) AS RN
 	FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.M_CUENTATARJETACREDITO
-	WHERE FECSOLICITUDTARJETA >= DATE(FECINCREMENTOLINEA) AND FECULTDIAPAGO IS NOT NULL
+	WHERE DATE(FECSOLICITUDTARJETA) >= FECINCREMENTOLINEA AND FECULTDIAPAGO IS NOT NULL
 ),
 M_CUENTATARJETACREDITO_UNICO AS (
 	SELECT
@@ -75,4 +77,8 @@ TP_BASE_1 AS (
 		B.FECULTMOVIMIENTO,
 		B.CODCLAVECTA
 	FROM TP_BASE_1 A
-	LEFT JOIN M_CUENTATARJETACREDITO_UNICO B ON (A.CODCLAVEPARTYCLI = B.CODCLAVEPARTYCLI AND A.CODPRODUCTO = B.CODPRODUCTO AND B.FECINCREMENTOLINEA >= A.FECDESEMBOLSO AND B.FECINCREMENTOLINEA <= A.FECDESEMBOLSO + INTERVAL 30 DAYS)
+	LEFT JOIN M_CUENTATARJETACREDITO_UNICO B ON (A.CODCLAVEPARTYCLI = B.CODCLAVEPARTYCLI AND A.CODPRODUCTO = B.CODPRODUCTO AND A.FECDESEMBOLSO = B.FECINCREMENTOLINEA AND B.FECINCREMENTOLINEA <= A.FECDESEMBOLSO + INTERVAL 30 DAYS)
+
+
+La cual me ayuda a identificar las tarjetas de credito que han sido emitidas (desembolsadas) ver si han sido usadas (ulttrx) e identificar su CODCLAVECTA. Pero hay un tema, esto me funciona perfecto pero en algunos registros el LEFT JOIN M_CUENTATARJETACREDITO_UNICO B me salen todos nulos y es por esta conidcion  AND B.FECINCREMENTOLINEA <= A.FECDESEMBOLSO + INTERVAL 30 DAYS) en el ON. Quizá es un problema de la data que una tarjeta que se emitio (desembolso) el 2 de enero del 2025 salga como incremento de linea recien el 5 de enero del 2026. Por tal motivo quiero quitar eso pero concatenar loos que no me salian NULL + los que me saldran cuando quite esa condicion en el ON, como si fuera un UNION ALL o algo asi, me entiendes? Podría hacerlo en dos querys pero no es la idea.
+
