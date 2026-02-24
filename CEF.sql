@@ -1,17 +1,28 @@
-Necesito ayuda con un tema. Actualmente tengo este script en pyspark en un notebook de databricks.
-El cual se encarga de buscar nombres en dos fuentes principales, generar tokens con sus nombres quitando los stopwords, normalizando antes estos campos.
-Para despues comparar con el archivo de Organico que se tiene (1n_Activos_*.csv) donde también se aplica lo de los tokens y los stopwords. Y asi tener como un diccionario de que matricula le pertenece a cada nombre de estas fuentes.
-Esto lo hago con la finalidad de cuando se utilice estos informes, ya no realizar estos mismos pasos en cada script que vaya a usarlos, simplemente usar el diccionario ya creado. 
-
+# ============================================
+# DICCIONARIO ACTORES (SF) + MATCH A ORGÁNICO
+# + INCORPORAR CORREOS NUEVOS DE POWERAPPS
+# (SIN TRAZABILIDAD, SOLO INCORPORA)
+# ============================================
 
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from pyspark.sql.types import DecimalType
 
+# -----------------------------
+# PATHS
+# -----------------------------
 BASE_DIR_ORGANICO   = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/ORGANICO/1n_Activos_*.csv"
 PATH_SF_ESTADOS     = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/SALESFORCE/INFORME_ESTADO/INFORME_ESTADO_*.csv"
 PATH_SF_PRODUCTOS   = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/SALESFORCE/INFORME_PRODUCTO/INFORME_PRODUCTO_*.csv"
+PATH_PA_SOLICITUDES = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/POWERAPPS/1n_Apps_*.csv"
 
+# -----------------------------
+# STOPWORDS
+# -----------------------------
+STOPWORDS_ES = ["DE", "DEL", "LA", "LOS", "LAS", "Y", "E", "O", "U", "EL", "DA", "DO", "DOS", "A"]
+
+# -----------------------------
+# HELPERS TEXTO / FECHAS / EMAIL
+# -----------------------------
 def quitar_tildes(col):
     c = F.regexp_replace(col, "[ÁÀÂÄáàâä]", "A")
     c = F.regexp_replace(c, "[ÉÈÊËéèêë]", "E")
@@ -20,13 +31,11 @@ def quitar_tildes(col):
     c = F.regexp_replace(c, "[ÚÙÛÜúùûü]", "U")
     return c
 
-
 def limpiar_cesado(col):
     c = col.cast("string")
     c = F.regexp_replace(c, r"(?i)\(?\s*CESADO\s*\)?", "")
     c = F.regexp_replace(c, r"\s+", " ")
     return F.trim(c)
-
 
 def norm_txt(col):
     """
@@ -48,7 +57,6 @@ def norm_txt(col):
 
     # Mantener A-Z, Ñ, dígitos y espacio
     c = F.regexp_replace(c, r"[^A-ZÑ0-9 ]", " ")
-
     c = F.regexp_replace(c, r"\s+", " ")
     c = F.trim(c)
     return c
@@ -57,7 +65,6 @@ def norm_col(df, cols):
     for c in cols:
         df = df.withColumn(c, norm_txt(F.col(c)))
     return df
-
 
 def parse_fecha_hora_esp(col):
     s = col.cast("string")
@@ -69,9 +76,29 @@ def parse_fecha_hora_esp(col):
     s = F.regexp_replace(s, r"(?i)p\W*m\W*", "PM")
     return F.to_timestamp(s, "dd/MM/yyyy hh:mm a")
 
+def norm_email(col):
+    c = col.cast("string")
+    c = F.lower(F.trim(c))
+    c = F.regexp_replace(c, u"\u00A0", " ")
+    c = F.regexp_replace(c, u"\u202F", " ")
+    c = F.regexp_replace(c, r"\s+", "")   # quita espacios
+    c = F.regexp_replace(c, r"[;,]+$", "")  # limpia ; o , al final
+    return c
 
-from pyspark.sql import functions as F
+def add_tokens_nsw(df, nombre_col, stopwords):
+    df = df.withColumn("NOMBRE_TOKENS", F.split(F.col(nombre_col), r"\s+"))
+    df = df.withColumn("NOMBRE_TOKENS", F.array_remove(F.col("NOMBRE_TOKENS"), ""))
 
+    if stopwords:
+        sw_array = F.array(*[F.lit(w) for w in stopwords])
+        df = df.withColumn("NOMBRE_TOKENS_NSW", F.array_except(F.col("NOMBRE_TOKENS"), sw_array))
+    else:
+        df = df.withColumn("NOMBRE_TOKENS_NSW", F.col("NOMBRE_TOKENS"))
+    return df
+
+# -----------------------------
+# LOAD ORGÁNICO
+# -----------------------------
 def load_organico(spark, path_organico):
     df_raw = (
         spark.read.format("csv")
@@ -92,57 +119,34 @@ def load_organico(spark, path_organico):
         F.col("Matrícula Superior").alias("MATSUPERIOR"),
         F.col("Nombre Corto").alias("NBRCORTO"),
     )
+
     df = norm_col(df, ["MATORGANICO", "NOMBRECOMPLETO", "MATSUPERIOR", "NBRCORTO"])
+    df = df.withColumn("CORREO_CLEAN", norm_email(F.col("CORREO")))
 
     df = df.withColumn("MATSUPERIOR", F.regexp_replace("MATSUPERIOR", r"^0(?=[A-Z]\d{5})", ""))
 
-    df = df.withColumn(
-        "FECINGRESO_CLEAN",
-        F.regexp_replace(F.trim(F.col("FECINGRESO")), r"[-\.]", "/")
-    )
-
-    formatos = [
-        "d/M/yyyy",
-        "dd/MM/yyyy",
-        "d/M/yy",
-        "M/d/yyyy",
-        "yyyy-MM-dd"
-    ]
-
+    # Parse fecha ingreso (opcional, lo mantengo por si lo usas)
+    df = df.withColumn("FECINGRESO_CLEAN", F.regexp_replace(F.trim(F.col("FECINGRESO")), r"[-\.]", "/"))
+    formatos = ["d/M/yyyy", "dd/MM/yyyy", "d/M/yy", "M/d/yyyy", "yyyy-MM-dd"]
     parsed_cols = [F.to_date(F.col("FECINGRESO_CLEAN"), fmt) for fmt in formatos]
     df = df.withColumn("FECINGRESO_DT", F.coalesce(*parsed_cols))
+    df = df.drop("FECINGRESO").drop("FECINGRESO_CLEAN").withColumnRenamed("FECINGRESO_DT", "FECINGRESO")
 
-    df = (
-        df.drop("FECINGRESO")
-          .drop("FECINGRESO_CLEAN")
-          .withColumnRenamed("FECINGRESO_DT", "FECINGRESO")
-    )
-
-    # Array de NOMBRECOMPLETO
-    df = df.withColumn(
-        "NOMBRE_TOKENS_RAW",
-        F.split(F.col("NOMBRECOMPLETO"), r"\s+")
-    ).withColumn(
-        "NOMBRE_TOKENS",
-        F.expr("filter(NOMBRE_TOKENS_RAW, x -> x <> '')")
-    ).drop("NOMBRE_TOKENS_RAW")
+    # Tokens (con stopwords)
+    df = add_tokens_nsw(df, "NOMBRECOMPLETO", STOPWORDS_ES)
 
     return df
 
-
-
-from pyspark.sql import functions as F
-
-# Stopwords
-STOPWORDS_ES = ["DE", "DEL", "LA", "LOS", "LAS", "Y", "E", "O", "U", "EL", "DA", "DO", "DOS", "A"]
-
+# -----------------------------
+# BUILD DICCIONARIO (SF ESTADOS + SF PRODUCTOS)
+# -----------------------------
 def build_diccionario_actores(
     spark,
     path_estados,
     path_productos,
     filtrar_stopwords=True
 ):
-    # ESTADOS (Salesforce)
+    # ESTADOS
     df_est_raw = (
         spark.read.format("csv")
         .option("header", "true")
@@ -156,14 +160,12 @@ def build_diccionario_actores(
         F.col("Último actor del paso: Nombre completo").alias("NBRULTACTORPASO"),
     )
 
-    # Normalizar + limpiar
     df_est = norm_col(df_est, ["NBRULTACTOR", "NBRULTACTORPASO"])
     df_est = (
         df_est.withColumn("NBRULTACTOR", limpiar_cesado(F.col("NBRULTACTOR")))
               .withColumn("NBRULTACTORPASO", limpiar_cesado(F.col("NBRULTACTORPASO")))
     )
 
-    # Fecha → CODMES (yyyyMM)
     df_est = (
         df_est.withColumn("FECHORINICIOEVALUACION", parse_fecha_hora_esp(F.col("FECINICIOEVALUACION_RAW")))
               .withColumn("FECINICIOEVALUACION", F.to_date("FECHORINICIOEVALUACION"))
@@ -171,15 +173,12 @@ def build_diccionario_actores(
               .drop("FECINICIOEVALUACION_RAW", "FECHORINICIOEVALUACION", "FECINICIOEVALUACION")
     )
 
-    # Apilar nombres de estados -> (NOMBRE, CODMES)
     dicc_estados = (
         df_est.select(F.col("NBRULTACTOR").alias("NOMBRE"), F.col("CODMESEVALUACION").alias("CODMES"))
               .unionByName(df_est.select(F.col("NBRULTACTORPASO").alias("NOMBRE"), F.col("CODMESEVALUACION").alias("CODMES")))
               .where(F.col("NOMBRE").isNotNull() & (F.col("NOMBRE") != ""))
+              .dropDuplicates(["NOMBRE", "CODMES"])
     )
-
-    # Dedup por (NOMBRE, CODMES)
-    dicc_estados = dicc_estados.dropDuplicates(["NOMBRE", "CODMES"])
 
     # PRODUCTOS
     df_prod_raw = (
@@ -195,17 +194,16 @@ def build_diccionario_actores(
         F.col("Fecha de creación").alias("FECCREACION_RAW")
     )
 
-    # Normalizar + limpiar
-    df_prod = norm_col(df_prod, ["NBRANALISTA","NBRANALISTAASIGNADO"])
+    df_prod = norm_col(df_prod, ["NBRANALISTA", "NBRANALISTAASIGNADO"])
     df_prod = (
         df_prod.withColumn("NBRANALISTA", limpiar_cesado(F.col("NBRANALISTA")))
                .withColumn("NBRANALISTAASIGNADO", limpiar_cesado(F.col("NBRANALISTAASIGNADO")))
     )
 
-    # Fecha -> CODMES (yyyyMM)
     df_prod = (
         df_prod.withColumn("FECCREACION_STR", F.trim(F.col("FECCREACION_RAW").cast("string")))
-               .withColumn("FECCREACION",
+               .withColumn(
+                   "FECCREACION",
                    F.coalesce(
                        F.to_date("FECCREACION_STR", "dd/MM/yyyy"),
                        F.to_date("FECCREACION_STR", "yyyy-MM-dd"),
@@ -220,48 +218,24 @@ def build_diccionario_actores(
         df_prod.select(F.col("NBRANALISTA").alias("NOMBRE"), F.col("CODMESCREACION").alias("CODMES"))
                .unionByName(df_prod.select(F.col("NBRANALISTAASIGNADO").alias("NOMBRE"), F.col("CODMESCREACION").alias("CODMES")))
                .where(F.col("NOMBRE").isNotNull() & (F.col("NOMBRE") != ""))
+               .dropDuplicates(["NOMBRE", "CODMES"])
     )
 
-    dicc_productos = dicc_productos.dropDuplicates(["NOMBRE", "CODMES"])
-
-    # UNIFICAR DICCIONARIO Y DEDUP FINAL
+    # UNIFICAR
     dicc_maestro = (
         dicc_estados.unionByName(dicc_productos)
-                    .where(F.col("CODMES").isNotNull())  # opcional; quita filas sin mes
+                    .where(F.col("CODMES").isNotNull())
                     .dropDuplicates(["NOMBRE", "CODMES"])
     )
 
     # TOKENS
-    dicc_maestro = (
-        dicc_maestro
-        .withColumn("NOMBRE_TOKENS", F.split(F.col("NOMBRE"), r"\s+"))
-        .withColumn("NOMBRE_TOKENS", F.array_remove(F.col("NOMBRE_TOKENS"), ""))
-    )
-
-    if filtrar_stopwords and STOPWORDS_ES:
-        sw_array = F.array(*[F.lit(w) for w in STOPWORDS_ES])
-        dicc_maestro = dicc_maestro.withColumn(
-            "NOMBRE_TOKENS_NSW",
-            F.array_except(F.col("NOMBRE_TOKENS"), sw_array)
-        )
-    else:
-        dicc_maestro = dicc_maestro.withColumn("NOMBRE_TOKENS_NSW", F.col("NOMBRE_TOKENS"))
+    dicc_maestro = add_tokens_nsw(dicc_maestro, "NOMBRE", STOPWORDS_ES if filtrar_stopwords else [])
 
     return dicc_maestro
 
-
-df_org = load_organico(spark, BASE_DIR_ORGANICO)
-df_diccionario = build_diccionario_actores(
-    spark,
-    path_estados=PATH_SF_ESTADOS,
-    path_productos=PATH_SF_PRODUCTOS,
-    filtrar_stopwords=True
-)
-
-
-from pyspark.sql import functions as F
-from pyspark.sql import Window
-
+# -----------------------------
+# MATCH POR TOKENS A ORGÁNICO
+# -----------------------------
 def map_diccionario_a_organico(
     df_diccionario,
     df_org,
@@ -270,24 +244,9 @@ def map_diccionario_a_organico(
     alinear_mes=True,
     devolver_todos=False
 ):
-    """
-    Une df_diccionario con df_org por coincidencia de tokens (arrays) y devuelve
-    MATORGANICO, MATSUPERIOR y CORREO para cada (NOMBRE, CODMES) del diccionario,
-    siempre que compartan al menos `min_tokens` tokens.
-
-    Parámetros:
-      - min_tokens: umbral mínimo de tokens en común (por defecto 3).
-      - usar_stopwords: si True intenta usar columnas *_NSW si existen.
-      - alinear_mes: si True, une sólo dentro del mismo CODMES.
-      - devolver_todos: si False devuelve el mejor match por (NOMBRE, CODMES).
-                        Si True devuelve todos los matches por encima del umbral.
-    """
-
-    # Elegir columnas de tokens (preferir *_NSW si existen y usar_stopwords=True)
     dicc_tok_col = "NOMBRE_TOKENS_NSW" if (usar_stopwords and "NOMBRE_TOKENS_NSW" in df_diccionario.columns) else "NOMBRE_TOKENS"
     org_tok_col  = "NOMBRE_TOKENS_NSW" if (usar_stopwords and "NOMBRE_TOKENS_NSW" in df_org.columns) else "NOMBRE_TOKENS"
 
-    # Sanidad mínima
     for df_name, df_obj, col_name in [
         ("df_diccionario", df_diccionario, dicc_tok_col),
         ("df_org", df_org, org_tok_col),
@@ -295,14 +254,9 @@ def map_diccionario_a_organico(
         if col_name not in df_obj.columns:
             raise ValueError(f"{df_name} no tiene la columna de tokens esperada: {col_name}")
 
-    # 2) Explode tokens para crear índice invertido y evitar duplicados de token por entidad
     dicc_tok = (
         df_diccionario
-        .select(
-            F.col("NOMBRE"),
-            F.col("CODMES"),
-            F.col(dicc_tok_col).alias("TOKENS_D")
-        )
+        .select(F.col("NOMBRE"), F.col("CODMES"), F.col(dicc_tok_col).alias("TOKENS_D"))
         .withColumn("TOKEN", F.explode("TOKENS_D"))
         .where(F.col("TOKEN") != "")
         .dropDuplicates(["NOMBRE", "CODMES", "TOKEN"])
@@ -323,11 +277,9 @@ def map_diccionario_a_organico(
         .dropDuplicates(["MATORGANICO", "CODMES", "TOKEN"])
     )
 
-    # Join por TOKEN (+ CODMES si alinear_mes=True)
     join_keys = ["TOKEN", "CODMES"] if alinear_mes else ["TOKEN"]
     join_tok = dicc_tok.alias("d").join(org_tok.alias("o"), on=join_keys, how="inner")
 
-    # Conteo de tokens en común por par (NOMBRE, CODMES, MATORGANICO,...)
     matches = (
         join_tok
         .groupBy(
@@ -341,7 +293,6 @@ def map_diccionario_a_organico(
         .agg(F.countDistinct("TOKEN").alias("TOKENS_MATCH"))
     )
 
-    # Metricas extra: tamaños y Jaccard aproximado
     dicc_sizes = df_diccionario.select(
         "NOMBRE", "CODMES",
         F.size(F.col(dicc_tok_col)).alias("D_SIZE")
@@ -359,10 +310,8 @@ def map_diccionario_a_organico(
         .withColumn("JACCARD", F.when(F.col("UNION_SIZE") > 0, F.col("TOKENS_MATCH") / F.col("UNION_SIZE")).otherwise(F.lit(0.0)))
     )
 
-    # Filtro por umbral de tokens
     matches_filtered = matches.filter(F.col("TOKENS_MATCH") >= F.lit(min_tokens))
 
-    # Devolver mejor match por (NOMBRE, CODMES) o todos
     if devolver_todos:
         return matches_filtered.orderBy(F.desc("TOKENS_MATCH"), F.desc("JACCARD"))
     else:
@@ -370,42 +319,116 @@ def map_diccionario_a_organico(
         best = matches_filtered.withColumn("rn", F.row_number().over(w)).filter(F.col("rn") == 1).drop("rn")
         return best
 
+# -----------------------------
+# LOAD POWERAPPS
+# -----------------------------
+def load_powerapps(spark, path_apps):
+    df = (
+        spark.read.format("csv")
+        .option("header", "true")
+        .option("sep", ",")
+        .option("encoding", "utf-8")
+        .option("ignoreLeadingWhiteSpace", "true")
+        .option("ignoreTrailingWhiteSpace", "true")
+        .load(path_apps)
+        .select(
+            F.col("Mail").alias("CORREO"),
+            F.col("AñoMes").cast("string").alias("CODMES")
+        )
+    )
 
+    df = (
+        df.withColumn("CORREO_CLEAN", norm_email(F.col("CORREO")))
+          .where(F.col("CORREO_CLEAN").isNotNull() & (F.col("CORREO_CLEAN") != "") & F.col("CODMES").isNotNull())
+          .dropDuplicates(["CODMES", "CORREO_CLEAN"])
+    )
+    return df
+
+# -----------------------------
+# INCORPORAR POWERAPPS (POR CORREO) A MATCHES
+# -----------------------------
+def incorporar_powerapps_en_matches(matches_top, df_pa, df_org, alinear_mes=True):
+    """
+    - Toma correos (CODMES, CORREO_CLEAN) de PowerApps
+    - Se queda solo con los que NO existen ya en matches_top (por correo+mes)
+    - Busca esos correos en Orgánico (correo+mes) y obtiene MATORGANICO, MATSUPERIOR, CORREO, NBRCORTO
+    - Los incorpora a matches_top con unionByName, SIN trazabilidad
+    """
+    # Normaliza correo en matches_top
+    mt = matches_top.withColumn("CORREO_CLEAN", norm_email(F.col("CORREO")))
+
+    # Anti-join: correos PA que no están ya en matches_top
+    if alinear_mes:
+        pa_nuevos = df_pa.join(
+            mt.select("CODMES", "CORREO_CLEAN").dropDuplicates(),
+            on=["CODMES", "CORREO_CLEAN"],
+            how="left_anti"
+        )
+    else:
+        pa_nuevos = df_pa.join(
+            mt.select("CORREO_CLEAN").dropDuplicates(),
+            on=["CORREO_CLEAN"],
+            how="left_anti"
+        )
+
+    # Base orgánica para enriquecer por correo
+    org_base = (
+        df_org
+        .select("CODMES", "CORREO_CLEAN", "NOMBRECOMPLETO", "MATORGANICO", "MATSUPERIOR", "NBRCORTO", "CORREO")
+        .dropDuplicates(["CODMES", "CORREO_CLEAN", "MATORGANICO"])
+    )
+
+    join_keys = ["CODMES", "CORREO_CLEAN"] if alinear_mes else ["CORREO_CLEAN"]
+
+    pa_enriq = (
+        pa_nuevos.join(org_base, on=join_keys, how="left")
+                 .where(F.col("MATORGANICO").isNotNull())
+    )
+
+    # Convertir a esquema de matches_top (rellenar métricas con null)
+    pa_rows = (
+        pa_enriq
+        .withColumnRenamed("NOMBRECOMPLETO", "NOMBRE")
+        .withColumn("TOKENS_MATCH", F.lit(None).cast("int"))
+        .withColumn("D_SIZE", F.lit(None).cast("int"))
+        .withColumn("O_SIZE", F.lit(None).cast("int"))
+        .withColumn("UNION_SIZE", F.lit(None).cast("int"))
+        .withColumn("JACCARD", F.lit(None).cast("double"))
+        .select(matches_top.columns)  # asegura mismo orden/esquema
+    )
+
+    return matches_top.unionByName(pa_rows)
+
+# ============================================
+# EJECUCIÓN
+# ============================================
+df_org = load_organico(spark, BASE_DIR_ORGANICO)
+
+df_diccionario = build_diccionario_actores(
+    spark,
+    path_estados=PATH_SF_ESTADOS,
+    path_productos=PATH_SF_PRODUCTOS,
+    filtrar_stopwords=True
+)
 
 matches_top = map_diccionario_a_organico(
     df_diccionario=df_diccionario,
     df_org=df_org,
-    min_tokens=3,         # al menos 3 tokens en común
-    usar_stopwords=True,  # usa *_NSW si existen
-    alinear_mes=True,     # compara dentro del mismo CODMES
-    devolver_todos=False  # devuelve solo el mejor por (NOMBRE, CODMES)
+    min_tokens=3,
+    usar_stopwords=True,
+    alinear_mes=True,
+    devolver_todos=False
 )
 
+df_pa = load_powerapps(spark, PATH_PA_SOLICITUDES)
 
-Sin embargo, existe otra base que es unos archivos de Power Apps en formato csv el cual no tiene nombres, solo correo pero hay correos que no estan en los informes de salesforce que usamos anteriormente. 
-Entonces para estos casos me gustaria incorporarlos también en este diccionario esos analistas, Lo que pensaba era hagamos similar, limpiemos los correos, hagamos distinct para obtener los valores unicos y esos valores unicos obtener su nombre completo y los demas campos de organico y completarlos siempre y cuando no existan en el diccionario ya creado (fijarnos por correo)
-Es posible?
+# Incorporar solo los analistas que aparecen por correo en PowerApps y no existían ya en matches_top
+matches_final = incorporar_powerapps_en_matches(
+    matches_top=matches_top,
+    df_pa=df_pa,
+    df_org=df_org,
+    alinear_mes=True
+)
 
-Esta es la fuente:
-        
-PATH_PA_SOLICITUDES = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/POWERAPPS/1n_Apps_*.csv"
-
-Y asi estaba leyendolo:
-
-def load_powerapps(spark, path_apps):
-
-   df = (
-       spark.read.format("csv")
-       .option("header", "true")
-       .option("sep", ",")
-       .option("encoding", "utf-8")
-       .option("ignoreLeadingWhiteSpace", "true")
-       .option("ignoreTrailingWhiteSpace", "true")
-       .load(path_apps)
-       .select(
-           F.col("Mail").alias("CORREO"),
-           F.col("AñoMes").alias("CODMES")
-       )
-   )
-
-   return df
+# matches_final es tu diccionario final (SF por tokens + PA por correo, sin trazabilidad)
+# display(matches_final)
