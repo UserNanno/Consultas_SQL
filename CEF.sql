@@ -1,23 +1,5 @@
-def parse_created_utc(col):
-    """
-    Parsea PowerApps Created en formato:
-    - 2026-02-02T15:02:04Z
-    - 2026-02-02T15:02:04.000Z (por si aparece)
-    Devuelve timestamp en UTC.
-    """
-    s = col.cast("string")
+Podemos hacer que quede FECHORACREACION asi 2026-01-21 14:11:00 porque actualmente me sale 2026-01-21T14:11:00.000+00:00
 
-    return F.coalesce(
-        F.to_timestamp(s, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"),
-        F.to_timestamp(s, "yyyy-MM-dd'T'HH:mm:ss'Z'")
-    )
-
-
-
-
-df = df.withColumn("CREATED_TS_UTC", parse_created_utc(F.col("CREATED")))
-
-df = df.withColumn(
-    "CREATED_LIMA",
-    F.from_utc_timestamp(F.col("CREATED_TS_UTC"), "America/Lima")
-)
+También quiero que al final el orden de las columnas sea asi:
+    
+CODMES;CODSOLICITUD;FECHORACREACION;FECCREACION;HORACREACION;MATANALISTA;FECASIGNACION;PRODUCTO;RESULTADOANALISTA;MOTIVORESULTADOANALISTA;MOTIVOMALADERIVACION;SUBMOTIVOMALADERIVACION
