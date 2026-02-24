@@ -1,4 +1,8 @@
-Este es el contexto de ORGANICO.csv de como lo creee antes
+Necesito ayuda con un tema. Actualmente tengo este script en pyspark en un notebook de databricks.
+El cual se encarga de buscar nombres en dos fuentes principales, generar tokens con sus nombres quitando los stopwords, normalizando antes estos campos.
+Para despues comparar con el archivo de Organico que se tiene (1n_Activos_*.csv) donde también se aplica lo de los tokens y los stopwords. Y asi tener como un diccionario de que matricula le pertenece a cada nombre de estas fuentes.
+Esto lo hago con la finalidad de cuando se utilice estos informes, ya no realizar estos mismos pasos en cada script que vaya a usarlos, simplemente usar el diccionario ya creado. 
+
 
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
@@ -49,13 +53,10 @@ def norm_txt(col):
     c = F.trim(c)
     return c
 
-
-
 def norm_col(df, cols):
     for c in cols:
         df = df.withColumn(c, norm_txt(F.col(c)))
     return df
-
 
 
 def parse_fecha_hora_esp(col):
@@ -67,9 +68,6 @@ def parse_fecha_hora_esp(col):
     s = F.regexp_replace(s, r"(?i)a\W*m\W*", "AM")
     s = F.regexp_replace(s, r"(?i)p\W*m\W*", "PM")
     return F.to_timestamp(s, "dd/MM/yyyy hh:mm a")
-
-
-
 
 
 from pyspark.sql import functions as F
@@ -133,12 +131,9 @@ def load_organico(spark, path_organico):
 
 
 
-
-
-
 from pyspark.sql import functions as F
 
-# Stopwords en MAYÚSCULAS (consistentes con norm_txt)
+# Stopwords
 STOPWORDS_ES = ["DE", "DEL", "LA", "LOS", "LAS", "Y", "E", "O", "U", "EL", "DA", "DO", "DOS", "A"]
 
 def build_diccionario_actores(
@@ -255,8 +250,6 @@ def build_diccionario_actores(
     return dicc_maestro
 
 
-
-
 df_org = load_organico(spark, BASE_DIR_ORGANICO)
 df_diccionario = build_diccionario_actores(
     spark,
@@ -264,9 +257,6 @@ df_diccionario = build_diccionario_actores(
     path_productos=PATH_SF_PRODUCTOS,
     filtrar_stopwords=True
 )
-
-
-
 
 
 from pyspark.sql import functions as F
@@ -382,9 +372,6 @@ def map_diccionario_a_organico(
 
 
 
-
-
-
 matches_top = map_diccionario_a_organico(
     df_diccionario=df_diccionario,
     df_org=df_org,
@@ -395,42 +382,30 @@ matches_top = map_diccionario_a_organico(
 )
 
 
+Sin embargo, existe otra base que es unos archivos de Power Apps en formato csv el cual no tiene nombres, solo correo pero hay correos que no estan en los informes de salesforce que usamos anteriormente. 
+Entonces para estos casos me gustaria incorporarlos también en este diccionario esos analistas, Lo que pensaba era hagamos similar, limpiemos los correos, hagamos distinct para obtener los valores unicos y esos valores unicos obtener su nombre completo y los demas campos de organico y completarlos siempre y cuando no existan en el diccionario ya creado (fijarnos por correo)
+Es posible?
 
+Esta es la fuente:
+        
+PATH_PA_SOLICITUDES = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/CARGA/POWERAPPS/1n_Apps_*.csv"
 
+Y asi estaba leyendolo:
 
-final_dir = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/EXPORTS/ORGANICO/"
-tmp_dir   = "abfss://bcp-edv-rbmbdn@adlscu1lhclbackp05.dfs.core.windows.net/T72496/EXPORTS/ORGANICO/.tmp_export/"
+def load_powerapps(spark, path_apps):
 
-(matches_top
-    .coalesce(1)
-    .write
-    .mode("overwrite")
-    .option("header", "true")
-    .option("delimiter", ";")
-    .option("quote", '"')
-    .option("escape", '"')
-    .option("nullValue", "")
-    .csv(tmp_dir)
-)
+   df = (
+       spark.read.format("csv")
+       .option("header", "true")
+       .option("sep", ",")
+       .option("encoding", "utf-8")
+       .option("ignoreLeadingWhiteSpace", "true")
+       .option("ignoreTrailingWhiteSpace", "true")
+       .load(path_apps)
+       .select(
+           F.col("Mail").alias("CORREO"),
+           F.col("AñoMes").alias("CODMES")
+       )
+   )
 
-
-
-
-
-
-
-# Encuentra el part-*.csv
-part_files = [f.path for f in dbutils.fs.ls(tmp_dir) if f.name.startswith("part-") and f.name.endswith(".csv")]
-assert len(part_files) == 1, f"Esperaba 1 part-*.csv, encontré {len(part_files)}"
-part_file = part_files[0]
-
-dbutils.fs.mkdirs(final_dir)
-for f in dbutils.fs.ls(final_dir):
-    if f.name.endswith(".csv"):
-        dbutils.fs.rm(f.path, True)
-
-custom_name = "ORGANICO.csv"
-dest_file = f"{final_dir}{custom_name}"
-
-dbutils.fs.mv(part_file, dest_file)
-dbutils.fs.rm(tmp_dir, True)
+   return df
