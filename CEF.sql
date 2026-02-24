@@ -1,5 +1,4 @@
-from pyspark.sql import functions as F
-
+# INCORPORAR POWERAPPS (POR CORREO) A MATCHES
 def incorporar_powerapps_en_matches(matches_top, df_pa, df_org, alinear_mes=True):
     """
     - Correos (CODMES, CORREO_CLEAN) de PowerApps
@@ -8,10 +7,9 @@ def incorporar_powerapps_en_matches(matches_top, df_pa, df_org, alinear_mes=True
     - Incorpora a matches_top con unionByName, SIN trazabilidad
     """
 
-    # 1) Normaliza correo en matches_top
     mt = matches_top.withColumn("CORREO_CLEAN", norm_email(F.col("CORREO")))
 
-    # 2) Anti-join: correos PA que no están ya en matches_top
+    # Anti-join: correos PA que no están ya en matches_top
     if alinear_mes:
         pa_nuevos = df_pa.join(
             mt.select("CODMES", "CORREO_CLEAN").dropDuplicates(),
@@ -25,7 +23,7 @@ def incorporar_powerapps_en_matches(matches_top, df_pa, df_org, alinear_mes=True
             how="left_anti"
         )
 
-    # 3) Base orgánica para enriquecer (OJO: alias CORREO para no ambigüedad)
+    # Base orgánica para enriquecer por correo
     org_base = (
         df_org
         .select(
@@ -35,7 +33,7 @@ def incorporar_powerapps_en_matches(matches_top, df_pa, df_org, alinear_mes=True
             F.col("MATORGANICO"),
             F.col("MATSUPERIOR"),
             F.col("NBRCORTO"),
-            F.col("CORREO").alias("CORREO_ORG")   # <- clave para evitar ambigüedad
+            F.col("CORREO").alias("CORREO_ORG")
         )
         .dropDuplicates(["CODMES", "CORREO_CLEAN", "MATORGANICO"])
     )
@@ -48,8 +46,7 @@ def incorporar_powerapps_en_matches(matches_top, df_pa, df_org, alinear_mes=True
         .where(F.col("org.MATORGANICO").isNotNull())
     )
 
-    # 4) Construir filas con el MISMO esquema que matches_top
-    #    (rellenando métricas con null)
+    # Convertir a esquema de matches_top (rellenar metricas con null)
     pa_rows = (
         pa_enriq
         .select(
@@ -67,5 +64,4 @@ def incorporar_powerapps_en_matches(matches_top, df_pa, df_org, alinear_mes=True
         )
     )
 
-    # 5) Union final
     return matches_top.unionByName(pa_rows)
