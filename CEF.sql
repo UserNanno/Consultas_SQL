@@ -1,11 +1,14 @@
 DIMMES =
 VAR Base =
-   DISTINCT(
-      UNION(
-         SELECTCOLUMNS('WEEKLY', "CODMES", 'WEEKLY'[CODMES]),
-         SELECTCOLUMNS('WEEKLY', "CODMES", 'WEEKLY'[CODMESDESEMBOLSO])
-      )
-   )
+    DISTINCT(
+        FILTER(
+            UNION(
+                SELECTCOLUMNS('WEEKLY', "CODMES", 'WEEKLY'[CODMES]),
+                SELECTCOLUMNS('WEEKLY', "CODMES", 'WEEKLY'[CODMESDESEMBOLSO])
+            ),
+            NOT ISBLANK([CODMES])
+        )
+    )
 RETURN
 ADDCOLUMNS(
    Base,
