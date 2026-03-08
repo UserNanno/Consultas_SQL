@@ -1,35 +1,51 @@
-Luego hace esto
+WITH TIPO_CAMBIO_FILTRADO AS (
+    SELECT
+        CAST(DATE_FORMAT(FECTIPCAMBIO, 'yyyMM') AS INT) AS CODMES,
+        FECTIPCAMBIO,
+        CODMONEDAORIGEN,
+        CODMONEDADESTINO,
+        MTOCAMBIOMONEDAORIGENMONEDADESTINO
+    FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.H_TIPOCAMBIO
+    WHERE CODMONEDADESTINO = '0001'
+      AND CODAPP = 'GLM'
+),
 
-tipo_cambio = spark.sql(f"""select cast(date_format(FECTIPCAMBIO,"yyyMM") as int) as codmes, 
-                        FECTIPCAMBIO,
-                        CODMONEDAORIGEN,
-                        CODMONEDADESTINO,
-                        MTOCAMBIOMONEDAORIGENMONEDADESTINO
-                    from    catalog_lhcl_prod_bcp.bcp_udv_int_vu.H_TIPOCAMBIO
-                    where   FECTIPCAMBIO = (select max(FECTIPCAMBIO) as FECTIPCAMBIO
-                        from    catalog_lhcl_prod_bcp.bcp_udv_int_vu.H_TIPOCAMBIO
-                        where   cast(date_format(FECTIPCAMBIO,"yyyMM") as int)={codmes} 
-                        AND     CODMONEDADESTINO='0001' 
-                        AND     codapp='GLM')
-                    and     CODMONEDADESTINO='0001' 
-                    and     codapp='GLM'""")
- 
-validacion_1=tipo_cambio.groupBy("CODMONEDAORIGEN").count().withColumnRenamed("count","conteo")
-validacion_conteo=validacion_1.filter((validacion_1.conteo>1))
-print(validacion_conteo.count())
+MAX_FECHA_MES AS (
+    SELECT
+        CODMES,
+        MAX(FECTIPCAMBIO) AS FECTIPCAMBIO_MAX
+    FROM TIPO_CAMBIO_FILTRADO
+    GROUP BY CODMES
+),
 
-if validacion_conteo.count()>0:
-    print("Ejecutando limpieza de duplicados")
-    windowSpec = Window.partitionBy("CODMONEDAORIGEN").orderBy("CODMONEDAORIGEN")
-    
-    # Agregar una columna de número de fila para cada grupo de duplicados
-    tipo_cambio = tipo_cambio.withColumn("row_number", row_number().over(windowSpec))
-    
-    # Filtrar solo los registros con row_number igual a 1
-    tipo_cambio = tipo_cambio.filter("row_number = 1").drop("row_number")
+TIPO_CAMBIO_BASE AS (
+    SELECT
+        A.CODMES,
+        A.FECTIPCAMBIO,
+        A.CODMONEDAORIGEN,
+        A.CODMONEDADESTINO,
+        A.MTOCAMBIOMONEDAORIGENMONEDADESTINO
+    FROM TIPO_CAMBIO_FILTRADO A
+    INNER JOIN MAX_FECHA_MES B
+        ON A.CODMES = B.CODMES
+       AND A.FECTIPCAMBIO = B.FECTIPCAMBIO_MAX
+),
 
-else:
-    print('sin duplicados')
+TIPO_CAMBIO_RN AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY CODMES, CODMONEDAORIGEN
+            ORDER BY FECTIPCAMBIO DESC, CODMONEDAORIGEN
+        ) AS RN
+    FROM TIPO_CAMBIO_BASE
+)
 
-#display(tipo_cambio.where("CODMONEDAORIGEN='1001'"))
-tipo_cambio.createOrReplaceTempView("df_tipo_cambio")
+SELECT
+    CODMES,
+    FECTIPCAMBIO,
+    CODMONEDAORIGEN,
+    CODMONEDADESTINO,
+    MTOCAMBIOMONEDAORIGENMONEDADESTINO
+FROM TIPO_CAMBIO_RN
+WHERE RN = 1;
