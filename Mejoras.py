@@ -546,3 +546,843 @@ solicitudes_lead.write.format("delta").partitionBy("canalventarbm").save(f"{mi_r
 
 ruta = f"""CREATE TABLE catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SP_Solicitudes_{codmes} USING DELTA LOCATION '{mi_ruta}/SOLICITUDES_SP/SOLICITUDES/{codmes}'"""
 spark.sql(ruta)
+
+
+
+
+
+
+
+
+%sql
+CREATE OR REPLACE VIEW catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_Solicitudes as
+
+(select A.*,'' AS codmes_lead,'' AS tipventa,'' AS	tipoferta,'' AS descampanalead,'' AS codcondicioncliente,
+'' AS mtofinalofertadosol,'' AS 	plazo,'' AS tea
+from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T32611_SP_Solicitudes_202602 A)
+
+union all
+
+(select A.*,'' AS codmes_lead,'' AS tipventa,'' AS	tipoferta,'' AS descampanalead,'' AS codcondicioncliente,
+'' AS mtofinalofertadosol,'' AS 	plazo,'' AS tea
+from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T32611_SP_Solicitudes_202601 A)
+
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SP_Solicitudes_202512
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T32611_SP_Solicitudes_202511
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SP_Solicitudes_202510
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SP_Solicitudes_202509
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SP_Solicitudes_202508
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SP_Solicitudes_202507
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SP_Solicitudes_202506
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202505
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202504
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202503
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202502
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202501
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202412
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202411
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202410
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202409
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202408
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202407
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202406
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202405
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202404
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202403
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202402
+union all
+select * from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_sp_solicitudes_202401
+
+
+
+
+
+
+
+%sql
+CREATE OR REPLACE VIEW catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SEGMENTO as
+selecT distinct codmesevaluacion CODMES,numsolicitudevaluacion,codinternocomputacional,
+case when codsegmentobancario='CON' AND codsubsegmentoconsumo='A' THEN 'Consumo A'
+     when codsegmentobancario='CON' AND codsubsegmentoconsumo='B' THEN 'Consumo B'
+     when codsegmentobancario='CON' AND codsubsegmentoconsumo='C' THEN 'Consumo C'
+     WHEN codsegmentobancario IN ('ENA','BEX') THEN 'AFLUENTE'
+     ELSE 'OTROS' END SEGMENTO -- SELECt 
+from    catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_modelogestion_vu.md_evaluacionsolicitudcredito a
+where tipproductosolicitudrbm='CC' AND descanalventarbmper not in ('YAPE', 'OTROS') AND codproductosolicitudrbm='CCEF' 
+--- left join catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_seguimientoproducto_vu.md_seguimientocosechacreditoefectivo b on  a.codmesevaluacion=b.codmescosecha
+--- SELECT*FROM catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_reportlogevaluacion_vu.md_clienteevaluacioncreditorbm
+
+
+
+
+
+
+
+
+
+
+%sql
+CREATE OR REPLACE VIEW catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_BASE as
+SELECT DISTINCT
+codmesevaluacion,fecevaluacion,a.codinternocomputacional,
+CASE WHEN A.canalventarbm in ('SALEFORCE') THEN 'SALESFORCE' ELSE canalventarbm END as TIPO_CANAL,
+CASE WHEN A.canalventarbm in ('SALEFORCE') THEN 'SALESFORCE' else 'DIGITAL' END CANAL_F,
+'PUNTO DE CONTACTO' tipo_evaluacion,
+CASE WHEN A.MTODESEMBOLSADOSOL_VTA IS NOT NULL then '1. Aprobado'
+     WHEN A.resultadocda IN ('Approve') then '1. Aprobado'   
+ELSE '2. Denegado' END resultado_final,
+CASE WHEN a.descampanalead is not null then '1. Con lead'
+ELSE '2. Sin lead' END AS TIPO_LEAD,
+mtosolicitado_SLF,COALESCE(MTODESEMBOLSADOSOL_VTA,0) MTODESEMBOLSADOSOL_VTA ,resultadocda,descampana,decision
+FROM  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_Solicitudes a
+LEFT JOIN catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_CENTRALIZADO c ON a.numsolicitudprestamo = c.NROSOLICITUD
+WHERE (a.canalventarbm = 'SALEFORCE' AND c.NROSOLICITUD IS NULL) OR a.canalventarbm <> 'SALEFORCE'
+
+/*WHERE (canalventarbm = 'SALEFORCE' AND a.numsolicitudprestamo NOT IN (SELECT DISTINCT numsolicitud 
+      FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_CENTRALIZADO) ) OR canalventarbm <> 'SALEFORCE' */
+
+UNION ALL   
+
+
+select distinct 
+A.CODMES codmesevaluacion,B.fecevaluacion,TRIM(A.CODINTERNOCOMPUTACIONAL) codinternocomputacional,
+'SALEFORCE' tipo_canal,'SALEFORCE' canal_f,'CENTRALIZADO' tipo_evaluacion,
+CASE WHEN A.MONTODESEMBOLSADO >0 then '1. Aprobado'
+     WHEN A.ESTADOFINAL='ACEPTADAS' then '1. Aprobado'
+ELSE '2. Denegado' END resultado_final,
+CASE WHEN A.campana NOT LIKE '%SIN%'  THEN '1. Con lead'
+ELSE '2. Sin lead' END AS TIPO_LEAD,
+B.mtosolicitado_SLF,COALESCE(MONTODESEMBOLSADO,0) MTODESEMBOLSADOSOL_VTA,B.resultadocda,campana AS descampana,B.decision
+FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_CENTRALIZADO a 
+left join catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_Solicitudes b on trim(B.numsolicitudprestamo)=trim(a.NROSOLICITUD) and a.codmes=b.codmesevaluacion
+where a.codmes>='202401' and TIPOPRODUCTO='CC' 
+
+
+
+DROP TABLE IF EXISTS   catalog_lhcl_prod_bcp.bcp_edv_rbmspeedboatcefneg_001_v.T57182_SOLICITUDES
+
+%sql
+
+CREATE OR REPLACE TABLE catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SOLICITUDES_FIN
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/CEF/2026/SOL/26'
+AS
+
+SELECT distinct  A.*, B.SEGMENTO
+FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_BASE A
+LEFT JOIN  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SEGMENTO B ON B.CODMES=A.codmesevaluacion AND TRIM(A.codinternocomputacional)=TRIM(B.codinternocomputacional)
+
+
+
+
+
+
+
+
+
+%sql
+CREATE OR REPLACE VIEW catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_BASE1 AS
+--CREATE TABLE catalog_lhcl_prod_bcp.bcp_edv_rbmspeedboatcefneg_001_v.T57182_BASE1
+select a.codmesevaluacion,
+      a.fecevaluacion,
+      a.codinternocomputacional,
+      case 
+      when D.codinternocomputacional  is not null then '1. Venta'
+      when B.codinternocomputacional is  null then '2. Aprobado' 
+      when C.codinternocomputacional  is  null then '3. Denegado'
+      else '4. Mix'
+      end as resultado_final_unico,
+      TIPO_EVALUACION,
+      TIPO_CANAL,
+      CANAL_F,
+      TIPO_LEAD,
+      resultado_final,SEGMENTO,
+      case when mtosolicitado_SLF is null OR mtosolicitado_SLF=0 then 0 else 1 end as flg_mtosolicitud,
+      case WHEN MTODESEMBOLSADOSOL_VTA IS NULL OR MTODESEMBOLSADOSOL_VTA = 0 THEN 0 else 1 end as flg_mtoventa,
+      resultadocda,
+      descampana,
+      decision,
+      MTODESEMBOLSADOSOL_VTA,
+      mtosolicitado_SLF,
+      COUNT(1) OVER (PARTITION BY a.codinternocomputacional, a.codmesevaluacion) AS num_solicitudes
+      from  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SOLICITUDES_FIN a
+         left join
+          (select distinct codmesevaluacion,codinternocomputacional from  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SOLICITUDES_FIN where resultado_final='2. Denegado') b on a.codmesevaluacion=b.codmesevaluacion and a.codinternocomputacional=b.codinternocomputacional
+         left join
+          (select distinct codmesevaluacion,codinternocomputacional from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SOLICITUDES_FIN where resultado_final='1. Aprobado') c on a.codmesevaluacion=c.codmesevaluacion and a.codinternocomputacional=c.codinternocomputacional
+         left join
+          (select distinct codmesevaluacion,codinternocomputacional from  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SOLICITUDES_FIN where MTODESEMBOLSADOSOL_VTA > 0) d on a.codmesevaluacion=d.codmesevaluacion and a.codinternocomputacional=d.codinternocomputacional
+
+
+
+
+
+
+
+
+%sql
+CREATE OR REPLACE VIEW catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_BASE2 AS
+   select A.*,
+          1 AS RK
+     from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_BASE1 A
+    where MTODESEMBOLSADOSOL_VTA >0
+
+union all
+
+     select a.*,
+            ROW_NUMBER() OVER ( PARTITION BY a.codmesevaluacion, a.codinternocomputacional ORDER BY a.fecevaluacion desc) RK
+       from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_BASE1 A
+  LEFT JOIN ( select DISTINCT
+                     codmesevaluacion,
+                     codinternocomputacional
+                from catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_BASE1
+               where MTODESEMBOLSADOSOL_VTA >0 ) B 
+         ON A.codmesevaluacion=B.codmesevaluacion
+        AND A.codinternocomputacional=B.codinternocomputacional
+      WHERE B.codinternocomputacional is null
+
+
+
+
+
+
+
+#######Numero de clientes con multiples solicitudes Solo Venta,aprobadas, rechazadas, Mix
+mi_ruta='abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/'
+df=spark.sql("""
+with 
+tmp_result as (
+  SELECT RESULTADO, MAX_BY(CLASIFICACION, CLASIFICACION) AS CLASIFICACION
+    FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.Reglas
+    GROUP BY RESULTADO 
+)
+  select codmesevaluacion CODMES,
+         TIPO_LEAD,
+         TIPO_EVALUACION,
+         TIPO_CANAL,
+         CANAL_F,
+         resultado_final,
+         resultado_final_unico,SEGMENTO,
+         case when mtosolicitado_SLF is null OR mtosolicitado_SLF=0 then 0 else 1 end as flg_mtosolicitud,
+         case WHEN MTODESEMBOLSADOSOL_VTA IS NULL OR MTODESEMBOLSADOSOL_VTA = 0 THEN 0 else 1 end as flg_mtoventa,
+         resultadocda,
+        case when decision in ('No cumple con filtro. Titular está en Archivo Negativo en estado activo reingreso o reiterativo con motivo grave.', 'No cumple con filtro. Titular está en Archivo Negativo en estado activo\\, reingreso o reiterativo con motivo grave.') then '03.Archivo Neg' 
+        when decision='Perfil_SegmentoNoPermitido_Decline_Titular' then '08.Perfil Riesgos'
+        when decision='ProdPasivos_BloqueoNoPermitido_Decline_Conyuge' then '05.Bloqueo BCP_Pas'
+        else CLASIFICACION end CLASIFICACION,
+        descampana,
+        decision,
+         count(1) as c,
+         SUM(MTODESEMBOLSADOSOL_VTA) as MTODESEMBOLSO,
+         SUM(mtosolicitado_SLF) as MTOSOLICITADO,
+         SUM(num_solicitudes) as num_solicitudes
+    FROM (SELECT *FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_BASE2 WHERE RK=1) a
+    left join  tmp_result  b on a.decision=b.RESULTADO 
+group by 
+codmesevaluacion ,TIPO_LEAD,TIPO_EVALUACION,TIPO_CANAL,CANAL_F,resultado_final,resultado_final_unico,
+case when mtosolicitado_SLF is null OR mtosolicitado_SLF=0 then 0 else 1 end,
+      case WHEN MTODESEMBOLSADOSOL_VTA IS NULL OR MTODESEMBOLSADOSOL_VTA = 0 THEN 0 else 1 end,resultadocda,
+case when decision in ('No cumple con filtro. Titular está en Archivo Negativo en estado activo reingreso o reiterativo con motivo grave.', 'No cumple con filtro. Titular está en Archivo Negativo en estado activo\\, reingreso o reiterativo con motivo grave.') then '03.Archivo Neg' 
+when decision='Perfil_SegmentoNoPermitido_Decline_Titular' then '08.Perfil Riesgos'
+when decision='ProdPasivos_BloqueoNoPermitido_Decline_Conyuge' then '05.Bloqueo BCP_Pas'
+else CLASIFICACION end,descampana,decision,SEGMENTO
+""") 
+
+df=df.repartition(1)
+df.write.format("csv").mode("overwrite").option("header", "true").save(f"{mi_ruta}/resumen") 
+
+
+
+
+
+
+
+
+
+%sql
+DROP VIEW IF EXISTS catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SOLICITUDES
+
+
+
+
+spark.sql("DROP TABLE IF EXISTS catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SOLICITUDES")
+dbutils.fs.rm(f"{mi_ruta}/REVIEW29",recurse=True)   
+
+
+
+
+
+
+
+%sql
+CREATE TABLE  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_SOLICITUDES
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/REVIEW29'
+
+WITH 
+tmp_result as
+(
+  SELECT RESULTADO, MAX_BY(CLASIFICACION, CLASIFICACION) AS CLASIFICACION
+    FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.Reglas
+    GROUP BY RESULTADO 
+)
+  select codmesevaluacion CODMES,A.codinternocomputacional,
+         -- TIPO_LEAD,
+         CASE WHEN TRIM(A.codinternocomputacional)=TRIM(C.codinternocomputacional) THEN 'CON_LEAD' ELSE 'SIN_LEAD' END AS TIPO_LEAD,
+         TIPO_EVALUACION,
+         TIPO_CANAL,
+         CANAL_F,
+         resultado_final,
+         resultado_final_unico,
+         A.SEGMENTO,
+         case when mtosolicitado_SLF is null OR mtosolicitado_SLF=0 then 0 else 1 end as flg_mtosolicitud,
+         case WHEN MTODESEMBOLSADOSOL_VTA IS NULL OR MTODESEMBOLSADOSOL_VTA = 0 THEN 0 else 1 end as flg_mtoventa,
+         resultadocda,
+        case when decision in ('No cumple con filtro. Titular está en Archivo Negativo en estado activo reingreso o reiterativo con motivo grave.', 'No cumple con filtro. Titular está en Archivo Negativo en estado activo\\, reingreso o reiterativo con motivo grave.') then '03.Archivo Neg' 
+        when decision='Perfil_SegmentoNoPermitido_Decline_Titular' then '08.Perfil Riesgos'
+        when decision='ProdPasivos_BloqueoNoPermitido_Decline_Conyuge' then '05.Bloqueo BCP_Pas'
+        else CLASIFICACION end CLASIFICACION,
+        descampana,
+        decision,
+         count(1) as c,
+         SUM(MTODESEMBOLSADOSOL_VTA) as MTODESEMBOLSO,
+         SUM(mtosolicitado_SLF) as MTOSOLICITADO,
+         SUM(num_solicitudes) as num_solicitudes, 
+         SUM(MTO_OFERTA) MTO_OFERTA
+    FROM (SELECT *FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_BASE2 WHERE RK=1) a
+    LEFT JOIN  tmp_result  b on a.decision=b.RESULTADO 
+    LEFT JOIN catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_LEADS C ON A.codmesevaluacion=C.CODMES 
+              AND TRIM(A.codinternocomputacional)=TRIM(C.codinternocomputacional)
+group by ALL
+
+
+
+
+
+
+mi_ruta='abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/'
+df=spark.sql("""
+SELECT      codmes,
+            codcosecha,
+            maduracion,
+            producto_sub,        
+            count(1) as n,
+            count(distinct codclavectaoriginalsolicitud) as tj_sol,
+            sum(coalesce(mtodeuda,0))     AS mtodeuda,
+            sum(coalesce(mtogastoprov,0)) AS mtogastoprov,
+            sum(coalesce(margen,0)) AS margen
+FROM        
+catalog_lhcl_prod_bcp.bcp_edv_rbmper.hm_apetito_tc
+group by all
+""") 
+df=df.repartition(1)
+df.write.format("csv").option("header","true").mode("overwrite").save(f"{mi_ruta}/descarga_csv/prueba")
+
+
+
+
+
+
+
+
+mi_ruta='abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/'
+df=spark.sql("""
+select  desgrupoproductorbmper, codmes,
+                        codmescosecha as codcosecha,
+                        ctdmesmaduracion AS NUMEDADMADURACION,
+                        dessubgrupoproductorbmper producto_sub,        
+                        count(1) as n,
+                        sum(mtosaldocapitalsol) AS MONTO,
+ 
+                        sum(mtogastoprovsol) AS GTO_PROVISION_FINAL,
+ 
+                        sum(mtomargenctasol) as MARGEN,
+ 
+                        SUM(COALESCE(MTOINGRESOFINANCIEROSOL,0) + COALESCE(MTOEGRESOFINANCIEROSOL,0)) MARGEN_NETO
+                        from
+ catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_modelogestion_vu.hm_portafoliocreditopersona
+where desgrupoproductorbmper in ('CEF')
+and codmes >= 202401
+group by all
+
+""") 
+df=df.repartition(1)
+df.write.format("csv").option("header","true").mode("overwrite").save(f"{mi_ruta}/descarga_csv/prueba")
+
+
+
+
+DROP TABLE IF EXISTS catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_LEADS
+
+
+
+
+%sql
+CREATE TABLE  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_LEADS
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/LEADS14'
+WITH 
+BD AS (
+SELECT
+CASE WHEN CODMES='202312' THEN '202401' 
+     WHEN CODMES ='202412' THEN '202501' ELSE CODMES+1 END codmes,codinternocomputacional,
+case WHEN codsubsegmento = 'M1N' AND codsubsegmentoconsumo = 'A' THEN '03. Consumo A'
+     WHEN codsubsegmento = 'M1N' AND codsubsegmentoconsumo = 'B' THEN '04. Consumo B'
+     WHEN codsubsegmento = 'M1N' AND codsubsegmentoconsumo = 'C' THEN '05. Consumo C'
+     WHEN codsubsegmento IN ('P1N', 'LEN','X1N') THEN 'Afluente'
+     ELSE 'OTROS' END SEGMENTO -- SELECt DISTINCT codsubsegmento, dessubsegmento
+FROM catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_modelogestion_vu.hm_clientecreditopersona 
+where codmes>='202401'
+),
+VENTA AS (
+selecT 
+codmescosecha codmes,codinternocomputacional,
+case when dessubsegmentobcarbmper in ('01. Enalta/Privada','02. Bex') then 'Afluente' 
+     when dessubsegmentobcarbmper in ('03. Consumo A') then 'Consumo_A'
+     when dessubsegmentobcarbmper in ('04. Consumo B') then 'Consumo_B' 
+     when dessubsegmentobcarbmper in ('05. Consumo C') then 'Consumo_C' 
+else 'Otros' end  segmento,
+destipevaluacionventarbm tipo_evaluacion,
+descanalventarbm canal,
+CASE WHEN A.descanalventarbm in ('SALEFORCE') THEN 'SALESFORCE' else 'DIGITAL' END CANAL_D_F,
+CASE WHEN descampaniacrm IS NULL THEN 'SIN_LEAD' ELSE 'CON_LEAD' END FLG_LEAD,
+count(*) N,SUM(Mtodesembolsadosol) DESEMBOLSO
+from catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_seguimientoproducto_vu.md_seguimientocosechacreditoefectivo a
+WHERE dessubgrupoproductorbmper not in ('Yape') and codmescosecha>='202401'  
+group by ALL
+),
+PREVIA AS (
+
+selecT 
+DISTINCT A.codmes,A.codinternocomputacional,coalesce(B.SEGMENTO,'OTROS') SEGMENTO,GRUPO_PILOTO,
+CASE WHEN  PRODUCTO='CEF Shield' THEN 'SHIELD' ELSE 'RESTO' END FLG_PRODUCTO,PD,PCTTASAEFECTIVAANUAL TASA,SCORE_CRM,
+CASE WHEN SCORE_CRM IS NULL OR SCORE_CRM=0 THEN '0. NULL' 
+      WHEN SCORE_CRM<300 THEN '1. [00-300[' 
+      WHEN SCORE_CRM<=360 THEN '2. [300-360[' 
+      WHEN NUMSCORERIESGO<=400 THEN '3. [360-400['  
+      ELSE '4. [400-00[' END AS RANGO_SCORE, 
+COUNT(*) N,SUM( MTOFINALOFERTADOSOL) MTO_OFERTA,
+SUM(C.DESEMBOLSO) DESEMBOLSO -- SELECt*
+FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.HM_LEADS_CEF_DRIVERS A
+LEFT JOIN BD  B ON TRIM(A.codinternocomputacional)=TRIM(B.codinternocomputacional)  AND A.CODMES=B.CODMES
+LEFT JOIN VENTA  C ON TRIM(A.codinternocomputacional)=TRIM(C.codinternocomputacional)  AND A.CODMES=C.CODMES
+WHERE  CODPAUTARBM<>41 and PRODUCTO is not null AND A.CODMES>=202501 -- and day(FECINICIOVIGENCIA)=1 
+group by ALL
+
+union ALL
+
+select DISTINCT a.codmes,A.codinternocomputacional,coalesce(B.SEGMENTO,'OTROS') SEGMENTO,
+CASE WHEN A.PRODUCTO IN ('CEF LD 100% Aprobado','CEF LD Preaprobado') AND  E.codmodelopiloto IN ('LDI011', 'LDI012', 'LDI020','LDI025','LDI026')  then '01.CEF FLEX'
+     WHEN A.PRODUCTO IN ('CEF Shield') AND E.codmodelopiloto = 'SHI001' THEN '02.GRAD. SHD'
+     WHEN A.PRODUCTO IN ('CEF LD 100% Aprobado','CEF LD Preaprobado') AND E.codmodelopiloto = 'LDI013' THEN '05.PASIVEROS SCORE'
+     WHEN A.PRODUCTO IN ('CEF LD 100% Aprobado','CEF LD Preaprobado') AND E.codmodelopiloto = 'LDI014' then '06.BURO'
+     WHEN A.PRODUCTO IN ('CEF LD 100% Aprobado','CEF LD Preaprobado') AND E.codmodelopiloto IN ('LDI015', 'LDI016', 'LDI017') then '07.MID RISK'
+     WHEN A.PRODUCTO IN ('CEF LD 100% Aprobado','CEF LD Preaprobado') AND E.codmodelopiloto IN ('LDI018', 'LDI019')  then '08.HIGH RISK' 
+     ELSE '99. RESTO' END AS GRUPO_PILOTO,
+CASE WHEN  PRODUCTO='CEF Shield' THEN 'SHIELD' ELSE 'RESTO' END FLG_PRODUCTO,A.PD,PCTTASAEFECTIVAANUAL TASA,NUMSCORERIESGO,
+CASE WHEN NUMSCORERIESGO IS NULL OR NUMSCORERIESGO=0 THEN '0. NULL' 
+      WHEN NUMSCORERIESGO<300 THEN '1. [00-300[' 
+      WHEN NUMSCORERIESGO<=360 THEN '2. [300-360[' 
+      WHEN NUMSCORERIESGO<=400 THEN '3. [360-400['  
+      ELSE '4. [400-00[' END AS RANGO_SCORE, 
+COUNT(*) N,SUM( MTOFINALOFERTADOSOL) MTO_OFERTA,
+SUM(C.DESEMBOLSO) DESEMBOLSO
+FROM 
+(SELECT
+CASE          when tipventa in (6) and tipoferta in (3) and codcondicioncliente = 'INV' then 'CEF LD Invitado'
+              when tipventa in (6) and tipoferta in (3) and codcondicioncliente = 'PRE' then 'CEF LD Preaprobado'
+              when tipventa in (6) and tipoferta in (3) and codcondicioncliente = 'APR' then 'CEF LD 100% Aprobado'
+              when tipventa in (6) and tipoferta in (3) and codcondicioncliente = 'OPT' then 'CEF LD Optimus'
+              when tipventa in (6) and tipoferta in (89,98) then 'CEF Shield'
+              when tipventa in (6) and tipoferta in (41) and codcondicioncliente = 'PRE' then 'CEF CDD Preaprobado'
+              when tipventa in (6) and tipoferta in (41) and codcondicioncliente = 'APR' then 'CEF CDD 100% Aprobado'
+              when tipventa in (6) and tipoferta in (187) then 'CEF CDD Insuperable'
+              when tipventa in (6) and tipoferta in (38) and codcondicioncliente = 'PRE' then 'CEF RE Preaprobado'
+              when tipventa in (6) and tipoferta in (38) and codcondicioncliente = 'APR' then 'CEF RE 100% Aprobado'
+              when tipventa in (110) and tipoferta in (3) then 'CEF Convenio LD'
+              when tipventa in (110) and tipoferta in (41) then 'CEF Convenio CDD'
+              when tipventa in (110) and tipoferta in (38) then 'CEF Convenio RE'
+END AS PRODUCTO,ROUND(1/(EXP(-1 * ((174.24575241 - A.NUMSCORERIESGO)/57.707801636)) + 1),10) AS PD,A.*
+FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.S95402_LEADS_BDI_CEF_F A)  A    
+LEFT JOIN BD  B ON TRIM(A.codinternocomputacional)=TRIM(B.codinternocomputacional)  AND A.CODMES=B.CODMES
+LEFT JOIN VENTA  C ON TRIM(A.codinternocomputacional)=TRIM(C.codinternocomputacional)  AND A.CODMES=C.CODMES 
+LEFT JOIN (SELECT * FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.S95402_MD_RELCODCLAVECICDL_F WHERE FLGREGELIMINADOFUENTE=1) D ON trim(A.CODCLAVECIC)=trim(D.CODCLAVECIC)
+LEFT JOIN (
+  SELECT *
+  FROM (
+    SELECT *,
+           ROW_NUMBER() OVER (
+             PARTITION BY CODCLAVEUNICOCLI
+             ORDER BY 
+               CASE
+                 WHEN CODGRUPOMODELOPILOTO like 'LDI%P%' AND codmodelopiloto IN ('LDI011', 'LDI012', 'LDI020', 'LDI025', 'LDI026') THEN 1
+                 WHEN codmodelopiloto = 'LDI013' THEN 2
+                 WHEN codmodelopiloto = 'LDI014' THEN 4
+                 WHEN codmodelopiloto IN ('LDI015', 'LDI016', 'LDI017') THEN 5
+                 WHEN codmodelopiloto IN ('LDI018', 'LDI019') THEN 6
+                 WHEN codmodelopiloto IN ('LDI021') THEN 7  
+                 WHEN codmodelopiloto IN ('LDI023, LDI024') THEN 8
+                 ELSE 99
+               END
+           ) AS rn
+    FROM catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_modelogestion_vu.md_clientemodelopilotoriesgo
+    WHERE 1=1
+      AND codmodelopiloto IN ('LDI011', 'LDI012', 'LDI013','LDI014','LDI015', 'LDI016', 'LDI017','LDI018', 'LDI019','LDI020','LDI021','LDI025','LDI026','SHI001')   
+      AND codgrupomodelopiloto like '%P%'
+      AND flgregeliminadofuente = 'N'
+  ) sub
+  WHERE rn = 1
+) E ON D.CODCLAVEUNICOCLIDL = E.CODCLAVEUNICOCLI and E.CODMESOFERTA = A.codmes
+WHERE a.CODPAUTARBM <> 41 AND a.CODMES<='202412' AND  (A.TIPVENTA = 6 OR A.TIPVENTA = 110)   
+AND a.DESCAMPANA NOT IN ('CREDITO PERSONAL, VENTA AMPLIACION PLAZO', 'VENTA SKIP') and PRODUCTO IS NOT NULL
+ --- and day(FECINICIOVIGENCIA)=1 
+group by ALL
+)
+
+SELECT DISTINCT A.* 
+FROM PREVIA A
+
+
+
+
+
+
+
+spark.sql("DROP TABLE IF EXISTS  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_LEADS")
+dbutils.fs.rm(f"{mi_ruta}/LEADS20",recurse=True)   
+
+
+
+
+
+
+
+%sql
+CREATE TABLE  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_LEADS
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/LEADS20'
+WITH 
+BD AS (
+SELECT
+CASE WHEN CODMES='202312' THEN '202401' 
+     WHEN CODMES ='202412' THEN '202501'
+     WHEN CODMES ='202512' THEN '202601'  ELSE CODMES+1 END codmes,codinternocomputacional,
+case WHEN codsubsegmento = 'M1N' AND codsubsegmentoconsumo = 'A' THEN '03. Consumo A'
+     WHEN codsubsegmento = 'M1N' AND codsubsegmentoconsumo = 'B' THEN '04. Consumo B'
+     WHEN codsubsegmento = 'M1N' AND codsubsegmentoconsumo = 'C' THEN '05. Consumo C'
+     WHEN codsubsegmento IN ('P1N', 'LEN','X1N') THEN 'Afluente'
+     ELSE 'OTROS' END SEGMENTO -- SELECt DISTINCT codsubsegmento, dessubsegmento
+FROM catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_modelogestion_vu.hm_clientecreditopersona 
+where codmes>='202401'
+),
+VENTA AS (
+selecT 
+codmescosecha codmes,codinternocomputacional,
+case when dessubsegmentobcarbmper in ('01. Enalta/Privada','02. Bex') then 'Afluente' 
+     when dessubsegmentobcarbmper in ('03. Consumo A') then 'Consumo_A'
+     when dessubsegmentobcarbmper in ('04. Consumo B') then 'Consumo_B' 
+     when dessubsegmentobcarbmper in ('05. Consumo C') then 'Consumo_C' 
+else 'Otros' end  segmento,
+destipevaluacionventarbm tipo_evaluacion,
+descanalventarbm canal,
+CASE WHEN A.descanalventarbm in ('SALEFORCE') THEN 'SALESFORCE' else 'DIGITAL' END CANAL_D_F,
+CASE WHEN descampaniacrm IS NULL THEN 'SIN_LEAD' ELSE 'CON_LEAD' END FLG_LEAD,
+count(*) N,SUM(Mtodesembolsadosol) DESEMBOLSO
+from catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_seguimientoproducto_vu.md_seguimientocosechacreditoefectivo a
+WHERE dessubgrupoproductorbmper not in ('Yape') and codmescosecha>='202401'  
+group by ALL
+)
+
+SELECT 
+DISTINCT A.codmes,A.codinternocomputacional,A.CODCLAVECIC,coalesce(B.SEGMENTO,'OTROS') SEGMENTO,GRUPO_PILOTO,A.PRODUCTO,
+CASE WHEN  PRODUCTO='CEF Shield' THEN 'SHIELD' ELSE 'RESTO' END FLG_PRODUCTO,PD_CRM,PCTTASAEFECTIVAANUAL TASA,SCORE_CRM,
+CASE WHEN SCORE_CRM IS NULL OR SCORE_CRM=0 THEN '0. NULL' 
+      WHEN SCORE_CRM<300 THEN '1. [00-300[' 
+      WHEN SCORE_CRM<=360 THEN '2. [300-360[' 
+      WHEN SCORE_CRM<=400 THEN '3. [360-400['  
+      ELSE '4. [400-00[' END AS RANGO_SCORE, 
+COUNT(*) N,SUM( MTOFINALOFERTADOSOL) MTO_OFERTA,
+SUM(C.DESEMBOLSO) DESEMBOLSO -- SELECt*
+FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.HM_LEADS_CEF_DRIVERS A
+LEFT JOIN BD  B ON TRIM(A.codinternocomputacional)=TRIM(B.codinternocomputacional)  AND A.CODMES=B.CODMES
+LEFT JOIN VENTA  C ON TRIM(A.codinternocomputacional)=TRIM(C.codinternocomputacional)  AND A.CODMES=C.CODMES
+WHERE  CODPAUTARBM<>41 and PRODUCTO is not null AND A.CODMES>=202401 -- and day(FECINICIOVIGENCIA)=1 
+AND A.FLG_LEAD_CEF=1
+group by ALL
+
+
+
+
+
+
+
+
+
+
+#######Numero de clientes con multiples solicitudes Solo Venta,aprobadas, rechazadas, Mix
+mi_ruta='abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/'
+df=spark.sql("""
+WITH BD AS (
+SELECT
+CASE WHEN CODMES='202312' THEN '202401' 
+     WHEN CODMES ='202412' THEN '202501' ELSE CODMES+1 END codmes,codinternocomputacional,
+case WHEN codsubsegmento = 'M1N' AND codsubsegmentoconsumo = 'A' THEN '03. Consumo A'
+     WHEN codsubsegmento = 'M1N' AND codsubsegmentoconsumo = 'B' THEN '04. Consumo B'
+     WHEN codsubsegmento = 'M1N' AND codsubsegmentoconsumo = 'C' THEN '05. Consumo C'
+     WHEN codsubsegmento IN ('P1N', 'LEN','X1N') THEN 'Afluente'
+     ELSE 'OTROS' END SEGMENTO -- SELECt DISTINCT codsubsegmento, dessubsegmento
+FROM catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_modelogestion_vu.hm_clientecreditopersona 
+where codmes>='202401'
+)
+
+selecT DISTINCT A.codmes,coalesce(B.SEGMENTO,'OTROS') SEGMENTO,
+CASE WHEN  PRODUCTO='CEF Shield' THEN 'SHIELD' ELSE 'RESTO' END FLG_PRODUCTO,
+COUNT(*) N,SUM( MTOFINALOFERTADOSOL) MTO_OFERTA -- SELECt*
+FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.HM_LEADS_CEF_DRIVERS A
+LEFT JOIN BD  B ON TRIM(A.codinternocomputacional)=TRIM(B.codinternocomputacional)  AND A.CODMES=B.CODMES
+WHERE  CODPAUTARBM<>41 and day(FECINICIOVIGENCIA)=1 
+group by ALL
+
+union ALL
+
+select a.codmes,coalesce(B.SEGMENTO,'OTROS') SEGMENTO,
+case when tipventa in (6) and tipoferta in (89,98) then 'CEF Shield' else 'Resto' end FLG_PRODUCTO,
+COUNT(*) N,SUM( MTOFINALOFERTADOSOL) MTO_OFERTA
+FROM  catalog_lhcl_prod_bcp.bcp_edv_rbmper.S95402_LEADS_BDI_CEF_F A    
+LEFT JOIN BD  B ON TRIM(A.codinternocomputacional)=TRIM(B.codinternocomputacional)  AND A.CODMES=B.CODMES 
+WHERE a.CODPAUTARBM <> 41 AND a.CODMES<='202412' AND  (A.TIPVENTA = 6 OR A.TIPVENTA = 110)   AND a.DESCAMPANA NOT IN ('CREDITO PERSONAL, VENTA SKIP') 
+and day(FECINICIOVIGENCIA)=1 
+group by ALL
+""") 
+
+df=df.repartition(1)
+df.write.format("csv").mode("overwrite").option("header", "true").save(f"{mi_ruta}/resumen") 
+
+
+
+
+
+
+
+
+
+%sql
+CREATE TABLE IF NOT EXISTS catalog_lhcl_prod_bcp.bcp_edv_rbmspeedboatcefneg_001_v.T57182_UM_CEF_LD_CUBO_202507
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/carga12.csv'
+
+SELECT*FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.S95402_UM_CEF_LD_CUBO_202507
+
+
+
+
+
+
+
+
+
+
+%sql
+CREATE TABLE IF NOT EXISTS catalog_lhcl_prod_bcp.bcp_edv_rbmspeedboatcefneg_001_v.T57182_UM_CEF_LD_CUBO_202507
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/carga12.csv'
+
+SELECT*FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.S95402_UM_CEF_LD_CUBO_202507
+
+
+
+
+
+
+
+
+%sql
+CREATE TABLE IF NOT EXISTS catalog_lhcl_prod_bcp.bcp_edv_rbmspeedboatcefneg_001_v.T57182_COMPARTIR_PILOTO_CEM_PASIVEROS_202509
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/carga18.csv'
+
+SELECT*FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper_002_v.S95402_COMPARTIR_PILOTO_CEM_PASIVEROS_202509
+
+
+
+
+
+
+
+%sql
+CREATE TABLE IF NOT EXISTS catalog_lhcl_prod_bcp.bcp_edv_rbmspeedboatcefneg_001_v.T57182_HM_LEADS_CEF
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/carga19.csv'
+
+SELECT*FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.HM_LEADS_CEF
+
+
+
+
+
+
+
+
+
+%sql
+CREATE TABLE IF NOT EXISTS catalog_lhcl_prod_bcp.bcp_edv_rbmspeedboatcefneg_001_v.T57182_MD_RELCODCLAVECICDL_F
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/carga20.csv'
+
+SELECT*FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.S95402_MD_RELCODCLAVECICDL_F
+
+
+
+
+drop table catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_VENTA
+
+
+
+
+
+
+
+
+%sql
+CREATE TABLE  catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_VENTA
+USING DELTA
+LOCATION 'abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/venta2'
+
+selecT 
+codmescosecha codmes,
+case when dessubsegmentobcarbmper in ('01. Enalta/Privada','02. Bex') then 'Afluente' 
+     when dessubsegmentobcarbmper in ('03. Consumo A') then 'Consumo_A'
+     when dessubsegmentobcarbmper in ('04. Consumo B') then 'Consumo_B' 
+     when dessubsegmentobcarbmper in ('05. Consumo C') then 'Consumo_C' 
+else 'Otros' end  segmento,
+destipevaluacionventarbm tipo_evaluacion,
+descanalventarbm canal,
+CASE WHEN A.descanalventarbm in ('SALEFORCE') THEN 'SALESFORCE' else 'DIGITAL' END CANAL_D_F,
+---CASE WHEN descampaniacrm IS NULL THEN 'SIN_LEAD' ELSE 'CON_LEAD' END FLG_LEAD,
+CASE WHEN TRIM(a.codinternocomputacional)=TRIM(B.codinternocomputacional)  THEN 'CON_LEAD' ELSE 'SIN_LEAD' END FLG_LEAD,
+count(*) N,SUM(Mtodesembolsadosol) DESEMBOLSO
+from catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_seguimientoproducto_vu.md_seguimientocosechacreditoefectivo a
+LEFT JOIN catalog_lhcl_prod_bcp.bcp_edv_rbmper.T57182_LEADS B ON TRIM(a.codinternocomputacional)=TRIM(B.codinternocomputacional) AND a.codmescosecha=B.codmes
+WHERE dessubgrupoproductorbmper not in ('Yape') and codmescosecha>='202401'  
+group by ALL
+
+
+
+
+
+
+
+
+
+
+#######Numero de clientes con multiples solicitudes Solo Venta,aprobadas, rechazadas, Mix
+mi_ruta='abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/'
+df=spark.sql("""
+             
+selecT 
+codmescosecha codmes,
+case when dessubsegmentobcarbmper in ('01. Enalta/Privada','02. Bex') then 'Afluente' 
+     when dessubsegmentobcarbmper in ('03. Consumo A') then 'Consumo_A'
+     when dessubsegmentobcarbmper in ('04. Consumo B') then 'Consumo_B' 
+     when dessubsegmentobcarbmper in ('05. Consumo C') then 'Consumo_C' 
+else 'Otros' end  segmento,
+destipevaluacionventarbm tipo_evaluacion,
+descanalventarbm canal,
+CASE WHEN A.descanalventarbm in ('SALEFORCE') THEN 'SALESFORCE' else 'DIGITAL' END CANAL_D_F,
+CASE WHEN descampaniacrm IS NULL THEN 'SIN_LEAD' ELSE 'CON_LEAD' END FLG_LEAD,
+count(*) N,SUM(Mtodesembolsadosol) DESEMBOLSO
+from catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_seguimientoproducto_vu.md_seguimientocosechacreditoefectivo a
+WHERE dessubgrupoproductorbmper not in ('Yape') and codmescosecha>='202401'  
+group by ALL
+
+""") 
+
+df=df.repartition(1)
+df.write.format("csv").option("header","true").mode("overwrite").save(f"{mi_ruta}/descarga_csv/prueba")
+
+
+
+
+
+
+
+#######Numero de clientes con multiples solicitudes Solo Venta,aprobadas, rechazadas, Mix
+mi_ruta='abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/'
+df=spark.sql("""
+             
+select  desgrupoproductorbmper, codmes,
+                        codmescosecha as codcosecha,
+                        ctdmesmaduracion AS NUMEDADMADURACION,
+                        dessubgrupoproductorbmper producto_sub,
+                        sum(mtosaldocapitalsol) AS MONTO,
+ 
+                        sum(mtogastoprovsol) AS GTO_PROVISION_FINAL,
+ 
+                        sum(mtomargenctasol) as MARGEN,
+ 
+                        SUM(COALESCE(MTOINGRESOFINANCIEROSOL,0) + COALESCE(MTOEGRESOFINANCIEROSOL,0)) MARGEN_BRUTO
+                        from
+ catalog_lhcl_prod_bcp.bcp_ddv_rbmrbmper_modelogestion_vu.hm_portafoliocreditopersona
+where desgrupoproductorbmper in ('CEF')
+and codmes >= 202401
+group by all
+ 
+
+""") 
+
+df=df.repartition(1)
+df.write.format("csv").option("header","true").mode("overwrite").save(f"{mi_ruta}/descarga_csv/prueba")
+
+
+
+
+
+
+
+#######Numero de clientes con multiples solicitudes Solo Venta,aprobadas, rechazadas, Mix
+mi_ruta='abfss://bcp-edv-rbmper@adlscu1lhclbackp05.dfs.core.windows.net/data/in/T57182/'
+df=spark.sql("""
+             
+ 
+SELECT      codmes,
+            codcosecha,
+            maduracion,
+            producto_sub,        
+            count(1) as n,
+            count(distinct codclavectaoriginalsolicitud) as tj_sol,
+            sum(coalesce(mtodeuda,0))     AS mtodeuda,
+            sum(coalesce(mtogastoprov,0)) AS mtogastoprov,
+            sum(coalesce(margen,0)) AS margen
+FROM        
+catalog_lhcl_prod_bcp.bcp_edv_rbmper.hm_apetito_tc
+where codmes >= 202401
+group by all
+ 
+
+""") 
+
+df=df.repartition(1)
+df.write.format("csv").option("header","true").mode("overwrite").save(f"{mi_ruta}/descarga_csv/prueba")
