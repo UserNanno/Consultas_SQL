@@ -1,103 +1,4 @@
-Luego hace esto:
-
-solicitudes_lead = spark.sql(f"""select a.*,
-                            coalesce(b.CODMES, c.CODMES) as codmes_lead,
-                            coalesce(b.tipventa, c.tipventa) as tipventa,
-                            coalesce(b.tipoferta, c.tipoferta)  as tipoferta,
-                            coalesce(b.descampanalead, c.descampanalead) as descampanalead,
-                            coalesce(b.codcondicioncliente, c.codcondicioncliente) as codcondicioncliente,
-                            coalesce(b.mtofinalofertadosol, c.mtofinalofertadosol) as mtofinalofertadosol,
-                            coalesce(b.plazo, c.plazo) as plazo,
-                            coalesce(b.tea, c.tea) as tea
-                    from (select m.* from df_ventas_solicitudes m where LEAD_CEF not in ('REACTIVO', 'CONS APR', 'CONS CONV')) a
-                    left join df_leads_unicos b
-                    on    trim(a.codinternocomputacional) = trim(b.codinternocomputacional)
-                    and   a.LEAD_CEF = b.LEAD_CEF
-                    left join df_leads_unicos_41 c
-                    on    trim(a.codinternocomputacional) = trim(c.codinternocomputacional)
-                    union all
-                    select  x.*,
-                            coalesce(y.CODMES, z.CODMES) as CODMES,
-                            coalesce(y.tipventa, z.tipventa) as tipventa,
-                            coalesce(y.tipoferta, z.tipoferta) as tipoferta,
-                            coalesce(y.descampanalead, z.descampanalead) as descampanalead,
-                            coalesce(y.codcondicioncliente, z.codcondicioncliente) as codcondicioncliente,
-                            coalesce(y.mtofinalofertadosol, z.mtofinalofertadosol) as mtofinalofertadosol,
-                            coalesce(y.plazo, z.plazo) as plazo,
-                            coalesce(y.tea, z.tea) as tea
-                    from (select o.* from df_ventas_solicitudes o where LEAD_CEF in ('REACTIVO', 'CONS APR', 'CONS CONV')) x
-                    left join df_leads_unicos y
-                    on    trim(x.codinternocomputacional) = trim(y.codinternocomputacional)
-                    left join df_leads_unicos_41 z
-                    on    trim(x.codinternocomputacional) = trim(z.codinternocomputacional)""")
-
-#display(solicitudes_lead.limit(6))
-solicitudes_lead.createOrReplaceTempView("df_solicitudes_lead")
-
-
-df_ventas_solicitudes viene a ser CATALOG_LHCL_PROD_BCP_EXPL.BCP_EDV_RBMBDN.T72496_VENTAS_SOLICITUDES_CEF
-y df_leads_unicos viene a ser lo utlimo que hicimos que esta ahora en CATALOG_LHCL_PROD_BXPL.BCP_EDV_RBMBDN.T72496_BASELEADS
-
-
-
-
-
-
-
-
-CREATE TABLE CATALOG_LHCL_PROD_BCP_EXPL.BCP_EDV_RBMBDN.T72496_VENTAS_SOLICITUDES_CEF
-AS
-WITH
-M_SOLICITUDCREDITOCONSUMO AS (
-	SELECT
-		CAST(date_format(FECSOLICITUD, 'yyyyMM') AS INT) AS CODMES,
-		CODSOLICITUD,
-		FECSOLICITUD,
-		HORSOLICITUD,
-		CODINTERNOCOMPUTACIONAL,
-		DESTIPESTADOSOLICITUD,
-		FLGDESEMBOLSOSOLICITUD,
-		FECULTESTADOSOLICITUD,
-		CODPRODUCTO,
-		CODAPPSOLICITUD,
-		FLGVENTACEF,
-		FLGCOMPRADEUDA,
-		FLGCOMPRADEUDAADJUNTA,
-		MTOSOLICITADOCDD,
-		DESTIPRESULTADO,
-		DESPRODUCTO,
-		CODMONEDA,
-		NUMDIAPAGOCUOTA,
-		MTOSOLICITADO,
-		CTDPLAZOSOLICITADO,
-		PCTTASAEFECTIVAANUALSOLICITUD,
-		MTOCUOTAMENSUALSOLICITADO,
-		MTOAPROBADO,
-		CTDPLAZOAPROBADO,
-		PCTTASAEFECTIVAANUALAPROBADA,
-		MTOCUOTAMENSUALAPROBADO,
-		CODMATRICULACOLABORADORANALISTA,
-		DESTIPETAPA
-	FROM CATALOG_LHCL_PROD_BCP.BCP_UDV_INT_VU.M_SOLICITUDCREDITOCONSUMO
-	WHERE CAST(date_format(FECSOLICITUD, 'yyyyMM') AS INT) >= 202301
-)
-SELECT
-FROM CATALOG_LHCL_PROD_BCP_EXPL.BCP_EDV_RBMBDN.T72496_SOLICITUDESCEF A
-LEFT JOIN CATALOG_LHCL_PROD_BCP_EXPL.BCP_EDV_RBMBDN.T72496_VENTASCEF B ON (A.NUMSOLICITUDCORTO = B.CODSOLICITUDCORTO AND A.DESCANALVENTARBMPER = B.CANAL AND A.CODINTERNOCOMPUTACIONAL = B.CODINTERNOCOMPUTACIONAL)
-LEFT JOIN M_SOLICITUDCREDITOCONSUMO C ON (A.CODMESEVALUACION = C.CODMES AND A.NUMSOLICITUDEVALUACION = C.CODSOLICITUD)
-
-
-
-
-
-
-
-
-
-
-
-
-
+CORREGIDO:
 
 CREATE TABLE CATALOG_LHCL_PROD_BXPL.BCP_EDV_RBMBDN.T72496_BASELEADS
 WITH
@@ -190,8 +91,11 @@ HD_CONSOLIDADOCAMPANIACRM_LEADS_UNICOS AS (
 	FROM HD_CONSOLIDADOCAMPANIACRM_CONSOLIDADO
 	QUALIFY ROW_NUMBER() OVER (
 		PARTITION BY CODMESCAMPANIA, CODINTERNOCOMPUTACIONAL
-		ORDER BY CODINTERNOCOMPUTACIONAL
+		ORDER BY PRIORIDADLEAD
 	) = 1
 )
 SELECT *
 FROM HD_CONSOLIDADOCAMPANIACRM_LEADS_UNICOS
+
+
+También al _41 ya no ser util quitemoslo nomas pes
