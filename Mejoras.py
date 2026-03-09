@@ -1,137 +1,106 @@
-CONTINUAMENDO CON NUESTRA ADAPTACION DE CODIGO SPARK A SQL PURO EN DATABRICKS AHORA TENGO ESTO:
+WITH BASE_LEADS AS (
+    SELECT
+        ROUND(CODMESCAMPANIA, 0) AS CODMES,
+        UPPER(TRIM(CODINTERNOCOMPUTACIONAL)) AS CODINTERNOCOMPUTACIONAL,
+        CODSUBSEGMENTO,
+        ROUND(CAST(CODPRODUCTOVENTACRM AS INT), 0) AS TIPVENTA,
+        ROUND(CAST(TIPOFERTACRM AS INT), 0) AS TIPOFERTA,
+        DESCAMPANIACRM AS DESCAMPANALEAD,
+        CODCONDICIONCLIRBM AS CODCONDICIONCLIENTE,
+        ROUND(MTOOFERTASOL, 1) AS MTOFINALOFERTADOSOL,
+        ROUND(CTDMESPLAZO, 0) AS PLAZO,
+        PCTTASAEFECTIVAANUAL AS TEA,
+        CODPAUTARBM,
+        FECRUTINA,
 
-leads_consolidado = spark.sql(f"""Select round(a.CODMES,0) AS CODMES,\
-                    a.codinternocomputacional,\
-                    a.codsubsegmento,\
-                    round(a.tipventa,0) as tipventa,\
-                    round(a.tipoferta,0) as tipoferta,\
-                    a.descampana as descampanalead,\
-                    a.codcondicioncliente,\
-                    round(a.mtofinalofertadosol,1) as mtofinalofertadosol,\
-                    round(a.NUMPLAZO,0) as plazo,\
-                    a.PCTTASAEFECTIVAANUAL as tea,\
-                    case when a.tipventa in (6) and a.tipoferta in (3) and a.codcondicioncliente in ('APR', 'PRE') then 1\
-                         when a.tipventa in (6) and a.tipoferta in (3) and a.codcondicioncliente = 'OPT' then 2\
-                         when a.tipventa in (6) and a.tipoferta in (41) and a.codcondicioncliente in ('APR', 'PRE') then 3\
-                         when a.tipventa in (6) and a.tipoferta in (38) and a.codcondicioncliente in ('APR', 'PRE') then 4\
-                         when a.tipventa in (6) and a.tipoferta in (89,98) then 5\
-                         when a.tipventa in (6) and a.tipoferta in (3) and a.codcondicioncliente = 'INV' then 6\
-                         when a.tipventa in (6) and a.tipoferta in (187) then 7\
-                         when a.tipventa in (110) and a.tipoferta in (3) then 8\
-                         when a.tipventa in (110) and a.tipoferta in (41) then 9\
-                         when a.tipventa in (110) and a.tipoferta in (38) then 10\
-                         else 11 end as prioridad_lead,\
-                    case when a.tipventa in (6) and a.tipoferta in (3) and a.codcondicioncliente in ('APR', 'PRE') then 'LD APR'\
-                         when a.tipventa in (6) and a.tipoferta in (3) and a.codcondicioncliente = 'OPT' then 'LD OPT'\
-                         when a.tipventa in (6) and a.tipoferta in (89,98) then 'LD SHD'\
-                         when a.tipventa in (6) and a.tipoferta in (41) and a.codcondicioncliente in ('APR', 'PRE') then 'CDD APR'\
-                         when a.tipventa in (6) and a.tipoferta in (187) then 'CDD INS'\
-                         when a.tipventa in (6) and a.tipoferta in (38) and a.codcondicioncliente in ('APR', 'PRE') then 'REE APR'\
-                         when a.tipventa in (6) and a.tipoferta in (3) and a.codcondicioncliente = 'INV' then 'LD INV'\
-                         when a.tipventa in (110) and a.tipoferta in (3) then 'LD CONV'\
-                         when a.tipventa in (110) and a.tipoferta in (41) then 'CDD CONV'\
-                         when a.tipventa in (110) and a.tipoferta in (38) then 'REE CONV'\
-                         when a.tipventa in (127) and a.tipoferta in (3) then 'LD MULTI'\
-                         else 'OTRO' end as LEAD_CEF\
-                    from    (SELECT 
-                            CASE        when tipventa in (6) and tipoferta in (3) and codcondicioncliente = 'INV' then 'CEF LD Invitado'
-                                        when tipventa in (6) and tipoferta in (3) and codcondicioncliente = 'PRE' then 'CEF LD Preaprobado'
-                                        when tipventa in (6) and tipoferta in (3) and codcondicioncliente = 'APR' then 'CEF LD 100% Aprobado'
-                                        when tipventa in (6) and tipoferta in (3) and codcondicioncliente = 'OPT' then 'CEF LD Optimus'
-                                        when tipventa in (6) and tipoferta in (89,98) then 'CEF Shield'
-                                        when tipventa in (6) and tipoferta in (41) and codcondicioncliente = 'PRE' then 'CEF CDD Preaprobado'
-                                        when tipventa in (6) and tipoferta in (41) and codcondicioncliente = 'APR' then 'CEF CDD 100% Aprobado'
-                                        when tipventa in (6) and tipoferta in (187) then 'CEF CDD Insuperable'
-                                        when tipventa in (6) and tipoferta in (38) and codcondicioncliente = 'PRE' then 'CEF RE Preaprobado'
-                                        when tipventa in (6) and tipoferta in (38) and codcondicioncliente = 'APR' then 'CEF RE 100% Aprobado'
-                                        when tipventa in (110) and tipoferta in (3) then 'CEF Convenio LD'
-                                        when tipventa in (110) and tipoferta in (41) then 'CEF Convenio CDD'
-                                        when tipventa in (110) and tipoferta in (38) then 'CEF Convenio RE'
-                            END AS PRODUCTO,A.*,
-                                    ROW_NUMBER() OVER (PARTITION BY CODMES, CODCLAVECIC, TIPVENTA, TIPOFERTA ORDER BY FECINICIOVIGENCIA) AS N 
-                            FROM catalog_lhcl_prod_bcp.bcp_edv_rbmper.hm_bdi A
-                            ) A WHERE N = 1 AND
-                            CODPAUTARBM <> 41 AND  (A.TIPVENTA = 6 OR A.TIPVENTA = 110)   
-                            AND DESCAMPANA NOT IN ('CREDITO PERSONAL, VENTA AMPLIACION PLAZO', 'VENTA SKIP') AND  PRODUCTO IS NOT NULL
-                            AND to_date(FECINICIOVIGENCIA,'yyyyMM') =date_trunc('MM',to_date(cast({codmes} AS STRING), 'yyyyMM'))\
-                    """)
+        CASE
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 3   AND CODCONDICIONCLIRBM = 'INV' THEN 'CEF LD Invitado'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 3   AND CODCONDICIONCLIRBM = 'PRE' THEN 'CEF LD Preaprobado'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 3   AND CODCONDICIONCLIRBM = 'APR' THEN 'CEF LD 100% Aprobado'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 3   AND CODCONDICIONCLIRBM = 'OPT' THEN 'CEF LD Optimus'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 98  THEN 'CEF Shield'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 41  AND CODCONDICIONCLIRBM = 'PRE' THEN 'CEF CDD Preaprobado'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 41  AND CODCONDICIONCLIRBM = 'APR' THEN 'CEF CDD 100% Aprobado'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 187 THEN 'CEF CDD Insuperable'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 38  AND CODCONDICIONCLIRBM = 'PRE' THEN 'CEF RE Preaprobado'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 6   AND CAST(TIPOFERTACRM AS INT) = 38  AND CODCONDICIONCLIRBM = 'APR' THEN 'CEF RE 100% Aprobado'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 110 AND CAST(TIPOFERTACRM AS INT) = 3   THEN 'CEF Convenio LD'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 110 AND CAST(TIPOFERTACRM AS INT) = 41  THEN 'CEF Convenio CDD'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 110 AND CAST(TIPOFERTACRM AS INT) = 38  THEN 'CEF Convenio RE'
+            WHEN CAST(CODPRODUCTOVENTACRM AS INT) = 127 AND CAST(TIPOFERTACRM AS INT) = 3   THEN 'CEF Multi LD'
+        END AS PRODUCTO,
 
-
-validacion_1=leads_consolidado.groupBy("codinternocomputacional", "LEAD_CEF").count().withColumnRenamed("count","conteo")
-validacion_conteo=validacion_1.filter((validacion_1.conteo>1))
-print(validacion_conteo.count())
-
-if validacion_conteo.count()>0:
-    print("Ejecutando limpieza de duplicados")
-    windowSpec = Window.partitionBy("codinternocomputacional", "LEAD_CEF").orderBy("codinternocomputacional")
-    
-    # Agregar una columna de número de fila para cada grupo de duplicados
-    leads_consolidado = leads_consolidado.withColumn("row_number", row_number().over(windowSpec))
-    
-    # Filtrar solo los registros con row_number igual a 1
-    leads_consolidado = leads_consolidado.filter("row_number = 1").drop("row_number")
-
-else:
-    print('sin duplicados')
-
-#display(leads_consolidado.limit(2))
-leads_consolidado.createOrReplaceTempView("df_leads_consolidado")
-
-
-
-YA TENGO ARMADO ALGO QUE ES:
-
-WITH
-AS
-HD_CONSOLIDADOCAMPANIACRM AS (
-	SELECT
-		CODMESCAMPANIA,
-		UPPER(TRIM(CODINTERNOCOMPUTACIONAL)) AS CODINTERNOCOMPUTACIONAL,
-		CODPRODUCTOVENTACRM,
-		TIPOFERTACRM,
-		DESCAMPANIACRM,
-		CODCONDICIONCLIRBM,
-		MTOOFERTASOL,
-		CTDMESPLAZO,
-		PCTTASAEFECTIVAANUAL,
-		(CASE
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0003' AND CODCONDICIONCLIRBM IN ('APR', 'PRE') THEN 1
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0003' AND CODCONDICIONCLIRBM = 'OPT' THEN 2
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0041' AND CODCONDICIONCLIRBM IN ('APR', 'PRE') THEN 3
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0038' AND CODCONDICIONCLIRBM IN ('APR', 'PRE') THEN 4
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0098' THEN 5
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0003' AND CODCONDICIONCLIRBM = 'INV' THEN 6
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0187' THEN 7
-			WHEN CODPRODUCTOVENTACRM = '0110' AND TIPOFERTACRM = '0003' THEN 8
-			WHEN CODPRODUCTOVENTACRM = '0110' AND TIPOFERTACRM = '0041' THEN 9
-			WHEN CODPRODUCTOVENTACRM = '0110' AND TIPOFERTACRM = '0038' THEN 10
-			WHEN CODPRODUCTOVENTACRM = '0127' AND TIPOFERTACRM = '0003' THEN 11
-			ELSE 12
-		END) AS PRIORIDADLEAD,
-		(CASE
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0003' AND CODCONDICIONCLIRBM IN ('APR', 'PRE') THEN 'LD APROBADO'
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0003' AND CODCONDICIONCLIRBM = 'OPT' THEN 'LD OPT'
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0041' AND CODCONDICIONCLIRBM IN ('APR', 'PRE') THEN 'CDD APROBADO'
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0038' AND CODCONDICIONCLIRBM IN ('APR', 'PRE') THEN 'REE APROBADO'
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0098' THEN 'LD SHIELD'
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0003' AND CODCONDICIONCLIRBM = 'INV' THEN 'LD INV'
-			WHEN CODPRODUCTOVENTACRM = '0006' AND TIPOFERTACRM = '0187' THEN 'CDD INS'
-			WHEN CODPRODUCTOVENTACRM = '0110' AND TIPOFERTACRM = '0003' THEN 'LD CONVENIO'
-			WHEN CODPRODUCTOVENTACRM = '0110' AND TIPOFERTACRM = '0041' THEN 'CDD CONVENIO'
-			WHEN CODPRODUCTOVENTACRM = '0110' AND TIPOFERTACRM = '0038' THEN 'REE CONVENIO'
-			WHEN CODPRODUCTOVENTACRM = '0127' AND TIPOFERTACRM = '0003' THEN 'LD MULTI'
-			ELSE 'OTRO'
-		END) AS LEADCEF,
-		DESPRODUCTOVENTACRM,
-		DESTIPOFERTACRM,
-		TIPSEGMENTORIESGOSCORERBM,
-		DESTIPSEGMENTORIESGOSCORERBM,
-		FECRUTINA
-	FROM CATALOG_LHCL_PROD_BCP.BCP_DDV_CRM_CAMPANIAMASIVA_VU.HD_CONSOLIDADOCAMPANIACRM
-	WHERE CODPRODUCTOVENTACRM IN ('0006', '0110') AND TIPOFERTACRM IN ('0003', '0038', '0041', '0098', '0187')
-	QUALIFY ROW_NUMBER() OVER (
-		PARTITION BY CODMESCAMPANIA, UPPER(TRIM(CODINTERNOCOMPUTACIONAL))
-		ORDER BY FECRUTINA DESC
-	) = 1
+        ROW_NUMBER() OVER (
+            PARTITION BY
+                ROUND(CODMESCAMPANIA, 0),
+                UPPER(TRIM(CODINTERNOCOMPUTACIONAL)),
+                ROUND(CAST(CODPRODUCTOVENTACRM AS INT), 0),
+                ROUND(CAST(TIPOFERTACRM AS INT), 0)
+            ORDER BY FECRUTINA
+        ) AS N
+    FROM CATALOG_LHCL_PROD_BCP.BCP_DDV_CRM_CAMPANIAMASIVA_VU.HD_CONSOLIDADOCAMPANIACRM
+    WHERE CAST(CODPRODUCTOVENTACRM AS INT) IN (6, 110, 127)
+      AND CAST(TIPOFERTACRM AS INT) IN (3, 38, 41, 98, 187)
 ),
-     
+
+LEADS_PRE AS (
+    SELECT
+        CODMES,
+        CODINTERNOCOMPUTACIONAL,
+        CODSUBSEGMENTO,
+        TIPVENTA,
+        TIPOFERTA,
+        DESCAMPANALEAD,
+        CODCONDICIONCLIENTE,
+        MTOFINALOFERTADOSOL,
+        PLAZO,
+        TEA,
+
+        CASE
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 3   AND CODCONDICIONCLIENTE IN ('APR', 'PRE') THEN 1
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 3   AND CODCONDICIONCLIENTE = 'OPT' THEN 2
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 41  AND CODCONDICIONCLIENTE IN ('APR', 'PRE') THEN 3
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 38  AND CODCONDICIONCLIENTE IN ('APR', 'PRE') THEN 4
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 98  THEN 5
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 3   AND CODCONDICIONCLIENTE = 'INV' THEN 6
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 187 THEN 7
+            WHEN TIPVENTA = 110 AND TIPOFERTA = 3   THEN 8
+            WHEN TIPVENTA = 110 AND TIPOFERTA = 41  THEN 9
+            WHEN TIPVENTA = 110 AND TIPOFERTA = 38  THEN 10
+            WHEN TIPVENTA = 127 AND TIPOFERTA = 3   THEN 11
+            ELSE 12
+        END AS PRIORIDAD_LEAD,
+
+        CASE
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 3   AND CODCONDICIONCLIENTE IN ('APR', 'PRE') THEN 'LD APR'
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 3   AND CODCONDICIONCLIENTE = 'OPT' THEN 'LD OPT'
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 98  THEN 'LD SHD'
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 41  AND CODCONDICIONCLIENTE IN ('APR', 'PRE') THEN 'CDD APR'
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 187 THEN 'CDD INS'
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 38  AND CODCONDICIONCLIENTE IN ('APR', 'PRE') THEN 'REE APR'
+            WHEN TIPVENTA = 6   AND TIPOFERTA = 3   AND CODCONDICIONCLIENTE = 'INV' THEN 'LD INV'
+            WHEN TIPVENTA = 110 AND TIPOFERTA = 3   THEN 'LD CONV'
+            WHEN TIPVENTA = 110 AND TIPOFERTA = 41  THEN 'CDD CONV'
+            WHEN TIPVENTA = 110 AND TIPOFERTA = 38  THEN 'REE CONV'
+            WHEN TIPVENTA = 127 AND TIPOFERTA = 3   THEN 'LD MULTI'
+            ELSE 'OTRO'
+        END AS LEADCEF
+    FROM BASE_LEADS
+    WHERE N = 1
+      AND CODPAUTARBM <> 41
+      AND DESCAMPANALEAD NOT IN ('CREDITO PERSONAL, VENTA AMPLIACION PLAZO', 'VENTA SKIP')
+      AND PRODUCTO IS NOT NULL
+      AND TO_DATE(CAST(CODMES AS STRING), 'yyyyMM') = DATE_TRUNC('MONTH', TO_DATE(CAST(${codmes} AS STRING), 'yyyyMM'))
+),
+
+LEADS_CONSOLIDADO AS (
+    SELECT *
+    FROM LEADS_PRE
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY CODINTERNOCOMPUTACIONAL, LEADCEF
+        ORDER BY CODINTERNOCOMPUTACIONAL
+    ) = 1
+)
+
+SELECT *
+FROM LEADS_CONSOLIDADO;
